@@ -456,7 +456,7 @@ class FriendServiceClass {
         .delete();
 
       if (supabase) {
-        await supabase.from('friendships')
+        await supabase.from('friends')
           .delete()
           .or(`and(user_id.eq.${this.currentUserId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${this.currentUserId})`);
       }
@@ -877,7 +877,13 @@ class FriendServiceClass {
     try {
       const settings = await db.settings.get(`privacy_${this.currentUserId}`);
       if (settings?.value) {
-        const parsedValue = typeof settings.value === 'string' ? JSON.parse(settings.value) : settings.value;
+        const parsedValue = (() => {
+          try {
+            return typeof settings.value === 'string' ? JSON.parse(settings.value) : settings.value;
+          } catch {
+            return {};
+          }
+        })();
         return { ...this.getDefaultPrivacySettings(), ...parsedValue };
       }
       return this.getDefaultPrivacySettings();
