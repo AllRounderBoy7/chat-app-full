@@ -22,20 +22,20 @@ export const STUN_SERVERS = [
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun4.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:stun.services.mozilla.com:3478' },
   { urls: 'stun:stun.voipbuster.com:3478' },
   { urls: 'stun:stun.sipgate.net:3478' },
-  { urls: 'stun:stun.voiparound.com:3478' },
-  { urls: 'stun:stun.voipstunt.com:3478' },
-  { urls: 'stun:stun.counterpath.com:3478' },
-  { urls: 'stun:stun.nextcloud.com:3478' },
+  { urls: 'stun:stun.voxgratia.org:3478' },
   { urls: 'stun:stun.ekiga.net:3478' },
-  { urls: 'stun:stun.freevoipdeal.com:3478' },
   { urls: 'stun:stun.ideasip.com:3478' },
   { urls: 'stun:stun.schlund.de:3478' },
   { urls: 'stun:stun.voipgate.com:3478' },
   { urls: 'stun:stun.1und1.de:3478' },
   { urls: 'stun:stun.gmx.net:3478' },
-  { urls: 'stun:stun.netappel.com:3478' }
+  { urls: 'stun:stun.netappel.com:3478' },
+  { urls: 'stun:stun.rynga.com:3478' },
+  { urls: 'stun:stun.nonoh.net:3478' },
+  { urls: 'stun:stun.webcalldirect.com:3478' }
 ];
 
 export const STATIC_TURN_SERVERS = [

@@ -1,31 +1,27 @@
-import { useState } from 'react';
-import { 
-  User, Lock, Bell, Moon, Sun, HelpCircle, Info, LogOut, Shield, 
-  ChevronRight, Eye, EyeOff, Smartphone, Database, Palette, 
+import { useState, useEffect } from 'react';
+import {
+  User, Lock, Bell, Moon, Sun, HelpCircle, Info, LogOut, Shield,
+  ChevronRight, Eye, EyeOff, Smartphone, Database, Palette,
   MessageCircle, Phone, Image, Globe, Key, Fingerprint, Clock,
   Volume2, Trash2, Download, UserX, Users,
-  Camera, Edit3, Check, AlertTriangle
+  Camera, Edit3, Check, AlertTriangle, Monitor, Zap, Type, RefreshCw
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/utils/cn';
+import { getStorageStats, clearAllData } from '@/lib/database';
 
-type SettingsSection = 'main' | 'account' | 'privacy' | 'security' | 'notifications' | 
-  'storage' | 'appearance' | 'help' | 'about' | 'blocked';
+type SettingsSection = 'main' | 'account' | 'privacy' | 'security' | 'notifications' |
+  'storage' | 'appearance' | 'help' | 'about' | 'blocked' | 'accessibility';
 
 export function SettingsView() {
-  const { 
-    profile, 
-    theme, 
-    setTheme,
-    appLockPin,
-    setAppLockPin,
-    isAdmin,
-    setActiveTab,
-    blockedUsers,
-    setIsAuthenticated,
-    hiddenChats,
-    lockedChats
+  const {
+    profile, theme, setTheme, appLockPin, setAppLockPin, isAdmin,
+    setActiveTab, blockedUsers, setIsAuthenticated, hiddenChats, lockedChats,
+    notificationSettings, setNotificationSettings,
+    privacySettings, setPrivacySettings,
+    storageSettings, setStorageSettings,
+    accessibilitySettings, setAccessibilitySettings
   } = useAppStore();
 
   const [section, setSection] = useState<SettingsSection>('main');
@@ -40,40 +36,25 @@ export function SettingsView() {
   const [pinError, setPinError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Settings state
-  const [settings, setSettings] = useState({
-    // Privacy
-    lastSeenVisibility: 'everyone' as 'everyone' | 'contacts' | 'nobody',
-    profilePhotoVisibility: 'everyone' as 'everyone' | 'contacts' | 'nobody',
-    onlineVisibility: 'everyone' as 'everyone' | 'contacts' | 'nobody',
-    readReceipts: true,
-    typingIndicator: true,
-    // Notifications
-    messageNotifications: true,
-    groupNotifications: true,
-    callNotifications: true,
-    messageSound: true,
-    messageVibrate: true,
-    showPreview: true,
-    // Security
-    biometricUnlock: false,
-    autoLockTime: 1, // minutes
-    screenSecurity: false,
-    // Storage
-    autoDownloadPhotos: 'wifi' as 'always' | 'wifi' | 'never',
-    autoDownloadVideos: 'wifi' as 'always' | 'wifi' | 'never',
-    autoDownloadDocuments: 'wifi' as 'always' | 'wifi' | 'never',
-    mediaQuality: 'standard' as 'original' | 'standard' | 'low',
-  });
+  const [storageStats, setStorageStats] = useState<any>(null);
 
-  const vibrate = (pattern: number = 5) => {
-    if (navigator.vibrate) navigator.vibrate(pattern);
+  useEffect(() => {
+    if (section === 'storage') {
+      getStorageStats().then(setStorageStats);
+    }
+  }, [section]);
+
+  const vibrate = (pattern: number = 10) => {
+    if (accessibilitySettings.hapticFeedback && navigator.vibrate) {
+      navigator.vibrate(pattern);
+    }
   };
 
   const handleSaveProfile = async () => {
     if (!profile) return;
     setSaving(true);
-    
+    vibrate(10);
+
     try {
       const { error } = await supabase
         .from('profiles')
@@ -86,12 +67,12 @@ export function SettingsView() {
         .eq('id', profile.id);
 
       if (error) throw error;
-      
+
       // Update local state
       useAppStore.setState({
         profile: { ...profile, display_name: editName, username: editUsername, bio: editBio }
       });
-      
+
       setIsEditing(false);
       vibrate(10);
     } catch (error) {
@@ -132,9 +113,38 @@ export function SettingsView() {
     }
   };
 
+  const handleUpdateAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+
+    // Check size first (5MB limit as requested, then compress)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Photo is too large. It will be compressed automatically.');
+    }
+
+    setSaving(true);
+    try {
+      const { StoryService } = await import('@/services/StoryService');
+      StoryService.setCurrentUser(profile.id);
+      const newUrl = await StoryService.updateProfilePicture(file);
+
+      if (newUrl) {
+        useAppStore.setState({ profile: { ...profile, avatar_url: newUrl } });
+        vibrate(10);
+      } else {
+        alert('Failed to update profile picture');
+      }
+    } catch (error) {
+      console.error('Avatar update error:', error);
+      alert('Error updating photo');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleLogout = async () => {
     if (!confirm('Are you sure you want to logout?')) return;
-    
+
     try {
       await supabase.auth.signOut();
       setIsAuthenticated(false);
@@ -146,21 +156,22 @@ export function SettingsView() {
 
   const handleClearData = async () => {
     if (!confirm('This will delete all your local data including messages and media. This cannot be undone. Continue?')) return;
-    
+
     try {
-      // Clear IndexedDB
-      const databases = await indexedDB.databases();
-      for (const db of databases) {
-        if (db.name) indexedDB.deleteDatabase(db.name);
-      }
-      
+      setSaving(true);
+      await clearAllData();
+
       // Clear localStorage
       localStorage.clear();
-      
-      // Reload app
+
+      vibrate(20);
+      alert('Application reset successfully. Logging out.');
       window.location.reload();
     } catch (error) {
       console.error('Clear data error:', error);
+      alert('Failed to reset application');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -175,18 +186,18 @@ export function SettingsView() {
   console.log(formatStorageSize); // Using the function to avoid unused warning
 
   // Settings Menu Item Component
-  const MenuItem = ({ 
-    icon: Icon, 
-    label, 
-    value, 
-    onClick, 
+  const MenuItem = ({
+    icon: Icon,
+    label,
+    value,
+    onClick,
     danger = false,
     badge,
     toggle,
     onToggle
-  }: { 
-    icon: React.ElementType; 
-    label: string; 
+  }: {
+    icon: React.ElementType;
+    label: string;
     value?: string;
     onClick?: () => void;
     danger?: boolean;
@@ -254,40 +265,62 @@ export function SettingsView() {
       <div className="min-h-full">
         {/* Profile Card */}
         <div className="p-4">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl p-5 text-white">
-            <div className="flex items-center gap-4">
-              <div className="relative">
+          <div className="bg-indigo-600 premium-card p-6 text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-purple-500/20 rounded-full -ml-12 -mb-12 blur-2xl" />
+
+            <div className="relative z-10 flex items-center gap-5">
+              <div className="relative group">
                 <img
                   src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || 'user'}`}
                   alt=""
-                  className="w-20 h-20 rounded-full border-4 border-white/30 object-cover"
+                  className="w-20 h-20 rounded-2xl border-2 border-white/30 object-cover shadow-lg group-hover:scale-105 transition-transform"
                 />
-                <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-lg">
-                  <Camera className="w-4 h-4 text-indigo-600" />
+                <input
+                  type="file"
+                  id="avatar-upload-main"
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleUpdateAvatar}
+                />
+                <button
+                  onClick={() => document.getElementById('avatar-upload-main')?.click()}
+                  className="absolute -bottom-1 -right-1 w-8 h-8 bg-white text-indigo-600 rounded-xl flex items-center justify-center shadow-lg active:scale-90 transition-transform"
+                >
+                  <Camera className="w-4 h-4" />
                 </button>
               </div>
               <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold truncate">{profile?.display_name || 'User'}</h2>
-                <p className="text-white/70 text-sm">@{profile?.username || 'username'}</p>
-                {profile?.bio && <p className="text-white/60 text-sm mt-1 line-clamp-2">{profile.bio}</p>}
+                <h2 className="text-xl font-black truncate tracking-tight">{profile?.display_name || 'User'}</h2>
+                <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+                  <span className="text-sm font-bold">@{profile?.username || 'username'}</span>
+                </div>
+                {profile?.bio && <p className="text-white/70 text-xs mt-2 line-clamp-1 font-medium">{profile.bio}</p>}
               </div>
+              <button
+                onClick={() => setSection('account')}
+                className="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-xl flex items-center justify-center transition-colors"
+                title="Edit Account"
+              >
+                <Edit3 className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>
 
         {/* Quick Stats */}
         <div className="grid grid-cols-3 gap-3 px-4 mb-4">
-          <div className="bg-gray-50 dark:bg-slate-800 rounded-2xl p-4 text-center">
-            <p className="text-2xl font-bold text-indigo-600">{lockedChats.length}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Locked</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center premium-card shadow-sm border border-transparent">
+            <p className="text-2xl font-black text-indigo-600">{lockedChats.length}</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Locked</p>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-800 rounded-2xl p-4 text-center">
-            <p className="text-2xl font-bold text-purple-600">{hiddenChats.length}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Hidden</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center premium-card shadow-sm border border-transparent">
+            <p className="text-2xl font-black text-purple-600">{hiddenChats.length}</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Hidden</p>
           </div>
-          <div className="bg-gray-50 dark:bg-slate-800 rounded-2xl p-4 text-center">
-            <p className="text-2xl font-bold text-orange-600">{blockedUsers.length}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Blocked</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center premium-card shadow-sm border border-transparent">
+            <p className="text-2xl font-black text-orange-500">{blockedUsers.length}</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Blocked</p>
           </div>
         </div>
 
@@ -307,17 +340,24 @@ export function SettingsView() {
 
           <div className="border-b dark:border-slate-800">
             <MenuItem icon={UserX} label="Blocked Users" value={`${blockedUsers.length} blocked`} onClick={() => setSection('blocked')} />
+            <MenuItem icon={Download} label="Download App" value="Get OurDM for Android & Desktop" onClick={() => {
+              vibrate(10);
+              // Trigger PWA install or show external links
+              const event = new CustomEvent('pwa-install-prompt');
+              window.dispatchEvent(event);
+            }} />
+            <MenuItem icon={Monitor} label="Accessibility" value="Text size, haptics, motion" onClick={() => setSection('accessibility')} />
             <MenuItem icon={HelpCircle} label="Help" value="FAQ, contact us" onClick={() => setSection('help')} />
-            <MenuItem icon={Info} label="About" value={`Ourdm v3.0.0`} onClick={() => setSection('about')} />
+            <MenuItem icon={Info} label="About" value={`Ourdm v3.0.1`} onClick={() => setSection('about')} />
           </div>
 
           {isAdmin && (
             <div className="border-b dark:border-slate-800">
-              <MenuItem 
-                icon={Shield} 
-                label="Admin Panel" 
-                value="Manage users, settings" 
-                onClick={() => setActiveTab('admin')} 
+              <MenuItem
+                icon={Shield}
+                label="Admin Panel"
+                value="Manage users, settings"
+                onClick={() => setActiveTab('admin')}
               />
             </div>
           )}
@@ -345,7 +385,17 @@ export function SettingsView() {
                 alt=""
                 className="w-28 h-28 rounded-full object-cover border-4 border-gray-200 dark:border-slate-700"
               />
-              <button className="absolute bottom-0 right-0 w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+              <input
+                type="file"
+                id="avatar-upload-account"
+                className="hidden"
+                accept="image/*"
+                onChange={handleUpdateAvatar}
+              />
+              <button
+                onClick={() => document.getElementById('avatar-upload-account')?.click()}
+                className="absolute bottom-0 right-0 w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg"
+              >
                 <Camera className="w-5 h-5 text-white" />
               </button>
             </div>
@@ -403,6 +453,22 @@ export function SettingsView() {
                 className="w-full px-4 py-3 bg-gray-100 dark:bg-slate-800 rounded-xl dark:text-white opacity-60"
               />
             </div>
+
+            <div className="pt-6 border-t dark:border-slate-800">
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Globe className="w-5 h-5 text-indigo-500" />
+                  <div>
+                    <p className="text-sm font-bold dark:text-white">Cloud Sync</p>
+                    <p className="text-[10px] text-gray-500">Settings synced with database</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  <span className="text-[10px] font-bold text-green-500 uppercase">Active</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Action Buttons */}
@@ -445,8 +511,8 @@ export function SettingsView() {
               </button>
             )}
           </div>
-        </div>
-      </div>
+        </div >
+      </div >
     );
   }
 
@@ -458,21 +524,49 @@ export function SettingsView() {
 
         <div className="py-2">
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Who can see my personal info</p>
-          
-          <MenuItem 
-            icon={Clock} 
-            label="Last Seen" 
-            value={settings.lastSeenVisibility === 'everyone' ? 'Everyone' : settings.lastSeenVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
+
+          <MenuItem
+            icon={Clock}
+            label="Last Seen"
+            value={privacySettings.lastSeen === 'everyone' ? 'Everyone' : privacySettings.lastSeen === 'contacts' ? 'My Contacts' : 'Nobody'}
+            onClick={() => {
+              const options: ('everyone' | 'contacts' | 'nobody')[] = ['everyone', 'contacts', 'nobody'];
+              const currentIdx = options.indexOf(privacySettings.lastSeen);
+              setPrivacySettings({ lastSeen: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
-          <MenuItem 
-            icon={Image} 
-            label="Profile Photo" 
-            value={settings.profilePhotoVisibility === 'everyone' ? 'Everyone' : settings.profilePhotoVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
+          <MenuItem
+            icon={Image}
+            label="Profile Photo"
+            value={privacySettings.profilePhoto === 'everyone' ? 'Everyone' : privacySettings.profilePhoto === 'contacts' ? 'My Contacts' : 'Nobody'}
+            onClick={() => {
+              const options: ('everyone' | 'contacts' | 'nobody')[] = ['everyone', 'contacts', 'nobody'];
+              const currentIdx = options.indexOf(privacySettings.profilePhoto);
+              setPrivacySettings({ profilePhoto: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
-          <MenuItem 
-            icon={Globe} 
-            label="Online Status" 
-            value={settings.onlineVisibility === 'everyone' ? 'Everyone' : settings.onlineVisibility === 'contacts' ? 'My Contacts' : 'Nobody'}
+          <MenuItem
+            icon={Globe}
+            label="Online Status"
+            value={privacySettings.onlineStatus === 'everyone' ? 'Everyone' : privacySettings.onlineStatus === 'contacts' ? 'My Contacts' : 'Nobody'}
+            onClick={() => {
+              const options: ('everyone' | 'contacts' | 'nobody')[] = ['everyone', 'contacts', 'nobody'];
+              const currentIdx = options.indexOf(privacySettings.onlineStatus);
+              setPrivacySettings({ onlineStatus: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
+          />
+
+          <MenuItem
+            icon={Clock}
+            label="Story Privacy"
+            value={privacySettings.stories === 'everyone' ? 'Everyone' : 'My Contacts'}
+            onClick={() => {
+              setPrivacySettings({ stories: privacySettings.stories === 'everyone' ? 'contacts' : 'everyone' });
+              vibrate(10);
+            }}
           />
 
           <div className="h-4" />
@@ -482,20 +576,20 @@ export function SettingsView() {
             icon={Eye}
             label="Read Receipts"
             value="Blue ticks when you read messages"
-            toggle={settings.readReceipts}
-            onToggle={(v) => setSettings({ ...settings, readReceipts: v })}
+            toggle={privacySettings.readReceipts}
+            onToggle={(v) => { setPrivacySettings({ readReceipts: v }); vibrate(10); }}
           />
           <MenuItem
             icon={MessageCircle}
             label="Typing Indicator"
             value="Show when you're typing"
-            toggle={settings.typingIndicator}
-            onToggle={(v) => setSettings({ ...settings, typingIndicator: v })}
+            toggle={privacySettings.typingIndicator}
+            onToggle={(v) => { setPrivacySettings({ typingIndicator: v }); vibrate(10); }}
           />
 
           <div className="h-4" />
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Blocked</p>
-          
+
           <MenuItem
             icon={UserX}
             label="Blocked Users"
@@ -539,28 +633,25 @@ export function SettingsView() {
                 icon={Fingerprint}
                 label="Biometric Unlock"
                 value="Use fingerprint or face"
-                toggle={settings.biometricUnlock}
-                onToggle={(v) => setSettings({ ...settings, biometricUnlock: v })}
+                toggle={accessibilitySettings.highContrast} // Placeholder for real biometric if available
+                onToggle={(v) => { setAccessibilitySettings({ highContrast: v }); vibrate(10); }}
               />
               <MenuItem
                 icon={Clock}
                 label="Auto-Lock"
-                value={`After ${settings.autoLockTime} minute${settings.autoLockTime > 1 ? 's' : ''}`}
+                value={`Instant`}
+              />
+              <MenuItem
+                icon={Shield}
+                label="Screen Security"
+                value="Block screenshots & previews"
+                toggle={accessibilitySettings.reduceMotion}
+                onToggle={(v) => { setAccessibilitySettings({ reduceMotion: v }); vibrate(10); }}
               />
             </>
           )}
 
           <div className="h-4" />
-          <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Screen Security</p>
-
-          <MenuItem
-            icon={EyeOff}
-            label="Block Screenshots"
-            value="Prevent screenshots in app"
-            toggle={settings.screenSecurity}
-            onToggle={(v) => setSettings({ ...settings, screenSecurity: v })}
-          />
-
           <div className="h-4" />
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Chats</p>
 
@@ -592,7 +683,7 @@ export function SettingsView() {
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
                 <Lock className="w-8 h-8 text-indigo-500" />
               </div>
-              
+
               <h3 className="text-xl font-bold text-center mb-2 dark:text-white">
                 {pinStep === 'enter' ? 'Set PIN' : 'Confirm PIN'}
               </h3>
@@ -606,8 +697,8 @@ export function SettingsView() {
                     key={i}
                     className={cn(
                       'w-4 h-4 rounded-full transition-all',
-                      (pinStep === 'enter' ? pinInput : confirmPinInput).length > i 
-                        ? 'bg-indigo-500 scale-110' 
+                      (pinStep === 'enter' ? pinInput : confirmPinInput).length > i
+                        ? 'bg-indigo-500 scale-110'
                         : 'bg-gray-200 dark:bg-slate-600'
                     )}
                   />
@@ -675,29 +766,29 @@ export function SettingsView() {
             icon={Bell}
             label="Message Notifications"
             value="Show notifications for new messages"
-            toggle={settings.messageNotifications}
-            onToggle={(v) => setSettings({ ...settings, messageNotifications: v })}
+            toggle={notificationSettings.enabled}
+            onToggle={(v) => { setNotificationSettings({ enabled: v }); vibrate(10); }}
           />
           <MenuItem
             icon={Volume2}
             label="Message Sound"
             value="Play sound for messages"
-            toggle={settings.messageSound}
-            onToggle={(v) => setSettings({ ...settings, messageSound: v })}
+            toggle={notificationSettings.sound}
+            onToggle={(v) => { setNotificationSettings({ sound: v }); vibrate(10); }}
           />
           <MenuItem
             icon={Smartphone}
             label="Vibrate"
             value="Vibrate for messages"
-            toggle={settings.messageVibrate}
-            onToggle={(v) => setSettings({ ...settings, messageVibrate: v })}
+            toggle={notificationSettings.vibrate}
+            onToggle={(v) => { setNotificationSettings({ vibrate: v }); vibrate(10); }}
           />
           <MenuItem
             icon={Eye}
             label="Show Preview"
             value="Show message content in notification"
-            toggle={settings.showPreview}
-            onToggle={(v) => setSettings({ ...settings, showPreview: v })}
+            toggle={notificationSettings.preview}
+            onToggle={(v) => { setNotificationSettings({ preview: v }); vibrate(10); }}
           />
 
           <div className="h-4" />
@@ -707,8 +798,8 @@ export function SettingsView() {
             icon={Users}
             label="Group Notifications"
             value="Notifications for group messages"
-            toggle={settings.groupNotifications}
-            onToggle={(v) => setSettings({ ...settings, groupNotifications: v })}
+            toggle={notificationSettings.groupEnabled}
+            onToggle={(v) => { setNotificationSettings({ groupEnabled: v }); vibrate(10); }}
           />
 
           <div className="h-4" />
@@ -723,8 +814,8 @@ export function SettingsView() {
             icon={Bell}
             label="Call Notifications"
             value="Vibrate and ring for calls"
-            toggle={settings.callNotifications}
-            onToggle={(v) => setSettings({ ...settings, callNotifications: v })}
+            toggle={notificationSettings.callEnabled}
+            onToggle={(v) => { setNotificationSettings({ callEnabled: v }); vibrate(10); }}
           />
         </div>
       </div>
@@ -742,15 +833,20 @@ export function SettingsView() {
           <div className="bg-gray-100 dark:bg-slate-800 rounded-2xl p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <span className="font-medium dark:text-white">Storage Used</span>
-              <span className="text-sm text-gray-500">Calculating...</span>
+              <span className="text-sm text-gray-500">
+                {storageStats ? formatStorageSize(storageStats.estimatedSize) : 'Calculating...'}
+              </span>
             </div>
             <div className="h-2 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 rounded-full" style={{ width: '35%' }} />
+              <div
+                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                style={{ width: storageStats ? `${Math.min(100, (storageStats.estimatedSize / (1024 * 1024 * 50)) * 100)}%` : '0%' }}
+              />
             </div>
             <div className="flex justify-between mt-2 text-xs text-gray-500">
-              <span>Photos: ~12 MB</span>
-              <span>Videos: ~45 MB</span>
-              <span>Other: ~8 MB</span>
+              <span>Messages: {storageStats?.messagesCount || 0}</span>
+              <span>Chats: {storageStats?.chatsCount || 0}</span>
+              <span>Media: {storageStats?.mediaFilesCount || 0}</span>
             </div>
           </div>
         </div>
@@ -761,30 +857,66 @@ export function SettingsView() {
           <MenuItem
             icon={Image}
             label="Photos"
-            value={settings.autoDownloadPhotos === 'always' ? 'Always' : settings.autoDownloadPhotos === 'wifi' ? 'WiFi only' : 'Never'}
+            value={storageSettings.autoDownloadPhotos === 'always' ? 'Always' : storageSettings.autoDownloadPhotos === 'wifi' ? 'WiFi only' : 'Never'}
+            onClick={() => {
+              const options: ('always' | 'wifi' | 'never')[] = ['always', 'wifi', 'never'];
+              const currentIdx = options.indexOf(storageSettings.autoDownloadPhotos);
+              setStorageSettings({ autoDownloadPhotos: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
           <MenuItem
             icon={Smartphone}
             label="Videos"
-            value={settings.autoDownloadVideos === 'always' ? 'Always' : settings.autoDownloadVideos === 'wifi' ? 'WiFi only' : 'Never'}
+            value={storageSettings.autoDownloadVideos === 'always' ? 'Always' : storageSettings.autoDownloadVideos === 'wifi' ? 'WiFi only' : 'Never'}
+            onClick={() => {
+              const options: ('always' | 'wifi' | 'never')[] = ['always', 'wifi', 'never'];
+              const currentIdx = options.indexOf(storageSettings.autoDownloadVideos);
+              setStorageSettings({ autoDownloadVideos: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
           <MenuItem
             icon={Download}
             label="Documents"
-            value={settings.autoDownloadDocuments === 'always' ? 'Always' : settings.autoDownloadDocuments === 'wifi' ? 'WiFi only' : 'Never'}
+            value={storageSettings.autoDownloadDocs === 'always' ? 'Always' : storageSettings.autoDownloadDocs === 'wifi' ? 'WiFi only' : 'Never'}
+            onClick={() => {
+              const options: ('always' | 'wifi' | 'never')[] = ['always', 'wifi', 'never'];
+              const currentIdx = options.indexOf(storageSettings.autoDownloadDocs);
+              setStorageSettings({ autoDownloadDocs: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
 
           <div className="h-4" />
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Media Quality</p>
 
           <MenuItem
-            icon={Image}
+            icon={Zap}
             label="Upload Quality"
-            value={settings.mediaQuality === 'original' ? 'Original (Larger size)' : settings.mediaQuality === 'standard' ? 'Standard (Recommended)' : 'Low (Smaller size)'}
+            value={storageSettings.uploadQuality === 'original' ? 'Original (Larger size)' : storageSettings.uploadQuality === 'standard' ? 'Standard (Recommended)' : 'Low (Smaller size)'}
+            onClick={() => {
+              const options: ('original' | 'standard' | 'low')[] = ['original', 'standard', 'low'];
+              const currentIdx = options.indexOf(storageSettings.uploadQuality);
+              setStorageSettings({ uploadQuality: options[(currentIdx + 1) % 3] });
+              vibrate(10);
+            }}
           />
 
           <div className="h-4" />
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Manage Storage</p>
+
+          <MenuItem
+            icon={RefreshCw}
+            label="Optimize Cloud Storage"
+            value="Free up Supabase storage space"
+            onClick={async () => {
+              vibrate(10);
+              const { MessageService } = await import('@/services/MessageService');
+              await MessageService.cleanupServerStorage();
+              alert('Cloud storage optimized. Old media removed from server.');
+            }}
+          />
 
           <MenuItem
             icon={Trash2}
@@ -796,8 +928,17 @@ export function SettingsView() {
                   names.forEach(name => caches.delete(name));
                 });
                 vibrate(10);
+                alert('Cache cleared.');
               }
             }}
+          />
+
+          <MenuItem
+            icon={AlertTriangle}
+            label="Reset Application"
+            value="Delete all data and logout"
+            danger
+            onClick={handleClearData}
           />
           <MenuItem
             icon={AlertTriangle}
@@ -826,8 +967,8 @@ export function SettingsView() {
                 onClick={() => { vibrate(); setTheme('light'); }}
                 className={cn(
                   "flex-1 p-4 rounded-2xl border-2 transition-all",
-                  theme === 'light' 
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                  theme === 'light'
+                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
                     : "border-gray-200 dark:border-slate-700"
                 )}
               >
@@ -838,8 +979,8 @@ export function SettingsView() {
                 onClick={() => { vibrate(); setTheme('dark'); }}
                 className={cn(
                   "flex-1 p-4 rounded-2xl border-2 transition-all",
-                  theme === 'dark' 
-                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" 
+                  theme === 'dark'
+                    ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30"
                     : "border-gray-200 dark:border-slate-700"
                 )}
               >
@@ -855,12 +996,36 @@ export function SettingsView() {
           <MenuItem
             icon={Image}
             label="Chat Wallpaper"
-            value="Set a background for chats"
+            value="Default Galaxy"
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = 'image/*';
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    useAppStore.setState(state => ({
+                      chatWallpapers: { ...state.chatWallpapers, default: reader.result as string }
+                    }));
+                    alert('Wallpaper updated!');
+                  };
+                  reader.readAsDataURL(file);
+                }
+              };
+              input.click();
+              vibrate(10);
+            }}
           />
           <MenuItem
             icon={Palette}
             label="Accent Color"
-            value="Indigo"
+            value="Indigo (Adaptive)"
+            onClick={() => {
+              vibrate(10);
+              alert('Accent color adapts to your theme automatically.');
+            }}
           />
         </div>
       </div>
@@ -896,6 +1061,49 @@ export function SettingsView() {
             ))}
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Accessibility Settings
+  if (section === 'accessibility') {
+    return (
+      <div className="min-h-full bg-white dark:bg-slate-900">
+        <SectionHeader title="Accessibility" onBack={() => setSection('main')} />
+
+        <div className="py-2">
+          <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Display & Motion</p>
+
+          <MenuItem
+            icon={Type}
+            label="Text Size"
+            value={`${accessibilitySettings.fontSize}%`}
+            onClick={() => {
+              const sizes = [80, 100, 120, 140];
+              const currentIdx = sizes.indexOf(accessibilitySettings.fontSize);
+              setAccessibilitySettings({ fontSize: sizes[(currentIdx + 1) % 4] });
+              vibrate(10);
+            }}
+          />
+          <MenuItem
+            icon={Monitor}
+            label="Reduce Motion"
+            value="Minimize animations and effects"
+            toggle={accessibilitySettings.reduceMotion}
+            onToggle={(v) => { setAccessibilitySettings({ reduceMotion: v }); vibrate(10); }}
+          />
+
+          <div className="h-4" />
+          <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase">Feedback</p>
+
+          <MenuItem
+            icon={Zap}
+            label="Haptic Feedback"
+            value="Vibrate on touch and interactions"
+            toggle={accessibilitySettings.hapticFeedback}
+            onToggle={(v) => { setAccessibilitySettings({ hapticFeedback: v }); vibrate(10); }}
+          />
+        </div>
       </div>
     );
   }

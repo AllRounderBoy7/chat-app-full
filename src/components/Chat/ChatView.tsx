@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
-import { 
-  ArrowLeft, Phone, Video, MoreVertical, Send, Paperclip, Smile, 
-  Check, CheckCheck, Reply, X, Image, Mic, Camera
+import {
+  ArrowLeft, Phone, Video, Send, Paperclip, Smile,
+  Check, CheckCheck, Reply, X, Image, Mic, Camera, ShieldCheck, Lock, Trash2, Download, MoreVertical
 } from 'lucide-react';
 import { useAppStore, type Chat, type Message } from '@/store/appStore';
 import { encryptMessage, decryptMessage, getLocalEncryptionKey } from '@/lib/encryption';
@@ -19,16 +19,16 @@ interface ChatViewProps {
 const EMOJI_LIST = ['😀', '😂', '😍', '🥰', '😎', '🤔', '😢', '😡', '👍', '❤️', '🔥', '🎉', '👏', '🙏', '💪', '✨', '😊', '🙂', '😉', '😋', '😜', '🤗', '🤩', '😇', '🥳', '😴', '🤯', '😤', '🥺', '😈', '💀', '👀'];
 
 export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
-  const { 
-    messages, 
-    addMessage, 
+  const {
+    messages,
+    addMessage,
     updateMessage,
-    profile, 
-    typingUsers, 
+    profile,
+    typingUsers,
     adminSettings,
     lockedChats
   } = useAppStore();
-  
+
   const [messageInput, setMessageInput] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -39,7 +39,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isInputFocused, setIsInputFocused] = useState(false);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageContainerRef = useRef<HTMLDivElement>(null);
@@ -50,12 +50,12 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
     // Visual Viewport API for better keyboard handling
     if ('visualViewport' in window && window.visualViewport) {
       const viewport = window.visualViewport;
-      
+
       const handleResize = () => {
         const windowHeight = window.innerHeight;
         const viewportHeight = viewport.height;
         const keyboardH = windowHeight - viewportHeight;
-        
+
         if (keyboardH > 100) {
           setKeyboardHeight(keyboardH);
           // Scroll to bottom when keyboard opens
@@ -66,16 +66,16 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
           setKeyboardHeight(0);
         }
       };
-      
+
       viewport.addEventListener('resize', handleResize);
       viewport.addEventListener('scroll', handleResize);
-      
+
       return () => {
         viewport.removeEventListener('resize', handleResize);
         viewport.removeEventListener('scroll', handleResize);
       };
     }
-    
+
     // Fallback for older browsers
     const handleFocus = () => {
       setIsInputFocused(true);
@@ -83,23 +83,23 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 300);
     };
-    
+
     const handleBlur = () => {
       setIsInputFocused(false);
     };
-    
+
     const input = inputRef.current;
     if (input) {
       input.addEventListener('focus', handleFocus);
       input.addEventListener('blur', handleBlur);
-      
+
       return () => {
         input.removeEventListener('focus', handleFocus);
         input.removeEventListener('blur', handleBlur);
       };
     }
   }, []);
-  
+
   const chatMessages = messages[chat.id] || [];
   const isLocked = lockedChats.includes(chat.id);
   const isTyping = typingUsers[chat.id];
@@ -113,7 +113,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
   useEffect(() => {
     const decryptAll = async () => {
       if (!encryptionKey) return;
-      
+
       const decrypted: Record<string, string> = {};
       for (const msg of chatMessages) {
         if (msg.is_deleted) {
@@ -128,7 +128,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
       }
       setDecryptedMessages(decrypted);
     };
-    
+
     decryptAll();
   }, [chatMessages, encryptionKey]);
 
@@ -137,14 +137,40 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages.length]);
 
+  // Typing indicator logic
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
+
+  const handleInputChange = (value: string) => {
+    setMessageInput(value);
+
+    const now = Date.now();
+    if (now - lastTypingSentRef.current > 1500) {
+      // Send typing status throttled
+      import('@/lib/syncService').then(m => m.sendTypingStatus(chat.id, true));
+      lastTypingSentRef.current = now;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      import('@/lib/syncService').then(m => m.sendTypingStatus(chat.id, false));
+      lastTypingSentRef.current = 0;
+    }, 2500);
+  };
+
   const handleSend = async () => {
     if (!messageInput.trim() || !encryptionKey || !profile) return;
 
+    // Stop typing indicator immediately on send
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    import('@/lib/syncService').then(m => m.sendTypingStatus(chat.id, false));
+
     const encrypted = await encryptMessage(messageInput.trim(), encryptionKey);
-    
+
     const newMessage: Message = {
       id: crypto.randomUUID(),
-      chatId: chat.id,
+      chat_id: chat.id,
       sender_id: profile.id,
       receiver_id: chat.user.id,
       content: encrypted.ciphertext,
@@ -152,22 +178,13 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
       type: 'text',
       status: 'pending',
       reply_to: replyTo?.id,
-      created_at: new Date().toISOString()
+      created_at: Date.now()
     };
 
     addMessage(chat.id, newMessage);
     setMessageInput('');
     setReplyTo(null);
     setShowEmojiPicker(false);
-
-    // Simulate message being sent
-    setTimeout(() => {
-      updateMessage(chat.id, newMessage.id, { status: 'sent' });
-    }, 500);
-    
-    setTimeout(() => {
-      updateMessage(chat.id, newMessage.id, { status: 'delivered' });
-    }, 1500);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,29 +200,29 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
 
     // Process and store media
     const mediaFile = await processAndStoreMedia(file);
-    
-    const fileType = file.type.startsWith('image/') ? 'image' 
-      : file.type.startsWith('video/') ? 'video' 
-      : file.type.startsWith('audio/') ? 'audio' 
-      : 'document';
+
+    const fileType = file.type.startsWith('image/') ? 'image'
+      : file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio'
+          : 'document';
 
     const newMessage: Message = {
       id: crypto.randomUUID(),
-      chatId: chat.id,
+      chat_id: chat.id,
       sender_id: profile.id,
       receiver_id: chat.user.id,
       content: '',
       iv: '',
       type: fileType,
-      file_url: mediaFile.localPath || URL.createObjectURL(file),
+      file_url: mediaFile.local_path || URL.createObjectURL(file), // Fixed localPath to local_path
       thumbnail: mediaFile.thumbnail,
       status: 'pending',
-      created_at: new Date().toISOString()
+      created_at: Date.now()
     };
 
     addMessage(chat.id, newMessage);
     setShowAttachMenu(false);
-    
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -218,18 +235,44 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         [profile?.id || '']: emoji
       }
     });
+
+    // Sync reaction to server
+    import('@/lib/syncService').then(m => m.sendReaction(messageId, emoji));
+
+    setSelectedMessage(null);
+  };
+
+  const handleDeleteForEveryone = async (messageId: string) => {
+    updateMessage(chat.id, messageId, { is_deleted: true, deleted_for_everyone: true });
+    // Sync delete to server (we use the payload to notify others)
+    import('@/lib/syncService').then(m => m.deleteMessageFromServer({ messageId }));
+    setSelectedMessage(null);
+  };
+
+  const handleDeleteForMe = async (messageId: string) => {
+    updateMessage(chat.id, messageId, { is_deleted: true });
     setSelectedMessage(null);
   };
 
   const handleDownload = async (message: Message) => {
     if (message.file_url) {
-      const response = await fetch(message.file_url);
-      const blob = await response.blob();
-      await saveToDevice(blob, `ourdm_${message.type}_${Date.now()}.${message.type === 'image' ? 'jpg' : message.type === 'video' ? 'mp4' : 'file'}`);
+      try {
+        const response = await fetch(message.file_url);
+        const blob = await response.blob();
+        await saveToDevice(blob, `ourdm_${message.type}_${Date.now()}.${message.type === 'image' ? 'jpg' : message.type === 'video' ? 'mp4' : 'file'}`);
+      } catch (error) {
+        console.error('Download failed:', error);
+      }
     }
   };
 
-  const formatTime = (dateStr: string) => format(new Date(dateStr), 'HH:mm');
+  const formatTime = (date: string | number) => {
+    try {
+      return format(new Date(date), 'HH:mm');
+    } catch {
+      return '--:--';
+    }
+  };
 
   const renderMessageStatus = (status: Message['status']) => {
     switch (status) {
@@ -247,7 +290,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
   const groupMessagesByDate = (msgs: Message[]) => {
     const groups: { date: string; messages: Message[] }[] = [];
     let currentDate = '';
-    
+
     msgs.forEach(msg => {
       const msgDate = format(new Date(msg.created_at), 'yyyy-MM-dd');
       if (msgDate !== currentDate) {
@@ -257,14 +300,14 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         groups[groups.length - 1].messages.push(msg);
       }
     });
-    
+
     return groups;
   };
 
   return (
-    <div 
+    <div
       className="flex flex-col h-full bg-gray-100 dark:bg-slate-900"
-      style={{ 
+      style={{
         paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined,
         transition: 'padding-bottom 0.2s ease-out'
       }}
@@ -274,7 +317,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         <button onClick={onBack} className="p-2 -ml-2 hover:bg-white/10 rounded-full">
           <ArrowLeft className="w-6 h-6" />
         </button>
-        
+
         <div className="relative">
           <img
             src={chat.user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.user.username}`}
@@ -285,14 +328,17 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
             <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-indigo-600" />
           )}
         </div>
-        
+
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold truncate">{chat.user.display_name}</h3>
-          <p className="text-sm text-white/70">
-            {isTyping ? 'typing...' : chat.user.is_online ? 'Online' : 'Offline'}
-          </p>
+          <div className="flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3 text-white/70" />
+            <p className="text-sm text-white/70">
+              {isTyping ? 'typing...' : chat.user.is_online ? 'Online' : 'Offline'}
+            </p>
+          </div>
         </div>
-        
+
         <div className="flex items-center gap-1">
           {adminSettings.voice_calls_enabled && (
             <button onClick={() => onCall('voice')} className="p-2 hover:bg-white/10 rounded-full">
@@ -311,25 +357,32 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
       </div>
 
       {/* Messages */}
-      <div 
+      <div
         ref={messageContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4"
       >
+        <div className="flex justify-center my-4">
+          <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/30 rounded-xl flex items-center gap-2 max-w-xs transition-opacity hover:opacity-100 opacity-80 shadow-sm">
+            <Lock className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-500" />
+            <p className="text-[10px] text-yellow-700 dark:text-yellow-400 leading-tight font-medium">
+              Messages and calls are end-to-end encrypted. No one outside of this chat, not even Ourdm, can read or listen to them.
+            </p>
+          </div>
+        </div>
+
         {groupMessagesByDate(chatMessages).map(({ date, messages: dayMessages }) => (
           <div key={date}>
-            {/* Date Separator */}
             <div className="flex items-center justify-center my-4">
               <span className="px-3 py-1 bg-white/80 dark:bg-slate-800 rounded-full text-xs text-gray-500 dark:text-gray-400 shadow-sm">
                 {format(new Date(date), 'MMMM d, yyyy')}
               </span>
             </div>
-            
-            {/* Messages for this date */}
+
             <div className="space-y-2">
               {dayMessages.map((msg, index) => {
                 const isOwn = msg.sender_id === profile?.id;
                 const showAvatar = !isOwn && (index === 0 || dayMessages[index - 1]?.sender_id === profile?.id);
-                
+
                 return (
                   <div
                     key={msg.id}
@@ -346,17 +399,16 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                       />
                     )}
                     {!isOwn && !showAvatar && <div className="w-8" />}
-                    
+
                     <div
                       onClick={() => setSelectedMessage(msg)}
                       className={cn(
                         'max-w-[75%] rounded-2xl p-3 cursor-pointer transition-transform active:scale-95',
-                        isOwn 
+                        isOwn
                           ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-br-md'
                           : 'bg-white dark:bg-slate-800 shadow-sm dark:text-white rounded-bl-md'
                       )}
                     >
-                      {/* Reply Preview */}
                       {msg.reply_to && (
                         <div className={cn(
                           'text-xs mb-2 p-2 rounded-lg',
@@ -365,8 +417,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                           <p className="opacity-70">Reply to message</p>
                         </div>
                       )}
-                      
-                      {/* Content */}
+
                       {msg.type === 'text' ? (
                         <p className="break-words whitespace-pre-wrap">
                           {decryptedMessages[msg.id] || 'Decrypting...'}
@@ -374,22 +425,22 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                       ) : msg.type === 'image' ? (
                         <div className="relative">
                           {msg.thumbnail && (
-                            <div 
+                            <div
                               className="absolute inset-0 bg-cover bg-center blur-xl scale-110"
                               style={{ backgroundImage: `url(${msg.thumbnail})` }}
                             />
                           )}
-                          <img 
-                            src={msg.file_url} 
-                            alt="" 
+                          <img
+                            src={msg.file_url}
+                            alt=""
                             className="rounded-lg max-w-full relative z-10"
                             loading="lazy"
                           />
                         </div>
                       ) : msg.type === 'video' ? (
-                        <video 
-                          src={msg.file_url} 
-                          controls 
+                        <video
+                          src={msg.file_url}
+                          controls
                           className="rounded-lg max-w-full"
                           poster={msg.thumbnail}
                         />
@@ -401,8 +452,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                           <span>File</span>
                         </div>
                       )}
-                      
-                      {/* Time & Status */}
+
                       <div className={cn(
                         'flex items-center justify-end gap-1 mt-1',
                         isOwn ? 'text-white/70' : 'text-gray-400'
@@ -410,8 +460,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                         <span className="text-xs">{formatTime(msg.created_at)}</span>
                         {isOwn && renderMessageStatus(msg.status)}
                       </div>
-                      
-                      {/* Reactions */}
+
                       {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                         <div className="flex gap-1 mt-1 -mb-1">
                           {Object.values(msg.reactions).map((emoji, i) => (
@@ -428,8 +477,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
             </div>
           </div>
         ))}
-        
-        {/* Typing Indicator */}
+
         {isTyping && (
           <div className="flex items-center gap-2">
             <img
@@ -446,11 +494,10 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
             </div>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Reply Preview */}
       {replyTo && (
         <div className="px-4 py-2 bg-gray-50 dark:bg-slate-800 border-t dark:border-slate-700 flex items-center gap-2">
           <Reply className="w-4 h-4 text-gray-500" />
@@ -468,22 +515,20 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         </div>
       )}
 
-      {/* Input Area */}
       <div className={cn(
         "p-4 bg-white dark:bg-slate-800 border-t dark:border-slate-700 flex-shrink-0 transition-all duration-200",
         keyboardHeight > 0 ? "fixed bottom-0 left-0 right-0 z-40" : "safe-area-bottom",
-        isInputFocused && keyboardHeight === 0 && "pb-6" // Fallback padding when keyboard is open
+        isInputFocused && keyboardHeight === 0 && "pb-6"
       )}>
         <div className="flex items-end gap-2">
-          {/* Attachment Button */}
           <div className="relative">
-            <button 
+            <button
               onClick={() => setShowAttachMenu(!showAttachMenu)}
               className="p-2 text-gray-500 hover:text-indigo-600 transition-colors"
             >
               <Paperclip className="w-6 h-6" />
             </button>
-            
+
             {showAttachMenu && (
               <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-slate-700 rounded-xl shadow-lg py-2 min-w-[160px]">
                 <button
@@ -519,56 +564,53 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
               </div>
             )}
           </div>
-          
+
           <input
             ref={fileInputRef}
             type="file"
             className="hidden"
             onChange={handleFileSelect}
           />
-          
-          {/* Emoji Button */}
-          <button 
+
+          <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             className="p-2 text-gray-500 hover:text-indigo-600 transition-colors"
           >
             <Smile className="w-6 h-6" />
           </button>
-          
-          {/* Input Field */}
+
           <div className="flex-1 relative">
             <input
               ref={inputRef}
               type="text"
               value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               onFocus={() => setIsInputFocused(true)}
               onBlur={() => setIsInputFocused(false)}
               placeholder={isLocked ? '🔒 Chat is locked' : 'Type a message...'}
               disabled={isLocked}
               maxLength={adminSettings.max_message_length}
-              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-slate-700 dark:text-white rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 text-base"
-              style={{ fontSize: '16px' }} // Prevents iOS zoom
+              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-slate-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 text-base border border-transparent focus:border-indigo-500/30 transition-all"
+              style={{ fontSize: '16px' }}
             />
           </div>
-          
-          {/* Send/Voice Button */}
+
           {messageInput.trim() ? (
-            <button 
+            <button
               onClick={handleSend}
-              className="p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-full hover:shadow-lg transition-shadow"
+              className="p-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all"
             >
               <Send className="w-5 h-5" />
             </button>
           ) : (
-            <button 
+            <button
               onTouchStart={() => setIsRecording(true)}
               onTouchEnd={() => setIsRecording(false)}
               className={cn(
-                'p-3 rounded-full transition-all',
-                isRecording 
-                  ? 'bg-red-500 text-white scale-110' 
+                'p-3 rounded-xl transition-all',
+                isRecording
+                  ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/30'
                   : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
               )}
             >
@@ -576,8 +618,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
             </button>
           )}
         </div>
-        
-        {/* Emoji Picker */}
+
         {showEmojiPicker && (
           <div className="mt-3 p-3 bg-gray-50 dark:bg-slate-700 rounded-xl">
             <div className="grid grid-cols-8 gap-2">
@@ -597,17 +638,15 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
         )}
       </div>
 
-      {/* Message Actions Modal */}
       {selectedMessage && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center"
           onClick={() => setSelectedMessage(null)}
         >
-          <div 
+          <div
             className="bg-white dark:bg-slate-800 rounded-t-3xl w-full max-w-lg p-6 animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Quick Reactions */}
             <div className="flex justify-center gap-4 mb-6">
               {['👍', '❤️', '😂', '😮', '😢', '🙏'].map(emoji => (
                 <button
@@ -619,8 +658,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                 </button>
               ))}
             </div>
-            
-            {/* Actions */}
+
             <div className="space-y-1">
               <button
                 onClick={() => {
@@ -632,34 +670,45 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
                 <Reply className="w-5 h-5" />
                 <span className="dark:text-white">Reply</span>
               </button>
-              
-              {selectedMessage.type !== 'text' && (
-                <button
-                  onClick={() => {
-                    handleDownload(selectedMessage);
+
+              <button
+                onClick={async () => {
+                  if (selectedMessage) {
+                    if (selectedMessage.type === 'text') {
+                      const decrypted = decryptedMessages[selectedMessage.id];
+                      const blob = new Blob([decrypted || ''], { type: 'text/plain' });
+                      await saveToDevice(blob, `message_${selectedMessage.id.substring(0, 8)}.txt`);
+                    } else {
+                      await handleDownload(selectedMessage);
+                    }
                     setSelectedMessage(null);
-                  }}
-                  className="w-full p-4 text-left rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3"
-                >
-                  <Paperclip className="w-5 h-5" />
-                  <span className="dark:text-white">Save to Device</span>
-                </button>
-              )}
-              
+                  }
+                }}
+                className="w-full p-4 text-left rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3"
+              >
+                <Download className="w-5 h-5" />
+                <span className="dark:text-white">Save to Device</span>
+              </button>
+
               {selectedMessage.sender_id === profile?.id && (
                 <button
-                  onClick={() => {
-                    updateMessage(chat.id, selectedMessage.id, { is_deleted: true });
-                    setSelectedMessage(null);
-                  }}
+                  onClick={() => handleDeleteForEveryone(selectedMessage.id)}
                   className="w-full p-4 text-left rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3 text-red-500"
                 >
                   <X className="w-5 h-5" />
-                  <span>Delete</span>
+                  <span>Delete for Everyone</span>
                 </button>
               )}
+
+              <button
+                onClick={() => handleDeleteForMe(selectedMessage.id)}
+                className="w-full p-4 text-left rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3"
+              >
+                <Trash2 className="w-5 h-5 text-gray-500" />
+                <span className="dark:text-white">Delete for Me</span>
+              </button>
             </div>
-            
+
             <button
               onClick={() => setSelectedMessage(null)}
               className="w-full mt-4 p-4 border dark:border-slate-600 rounded-xl font-medium dark:text-white"

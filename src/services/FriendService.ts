@@ -11,52 +11,53 @@ export interface Friend {
   id: string;
   odm_odm_userId: string;
   friendId: string;
-  displayName: string;
+  display_name: string;
   avatar: string;
   odm: string;
   bio: string;
-  isOnline: boolean;
-  lastSeen: Date | null;
-  friendshipDate: Date;
-  isBestFriend: boolean;
-  isCloseFriend: boolean;
-  isMuted: boolean;
+  is_online: boolean;
+  last_seen: number | null;
+  friendship_date: number;
+  is_best_friend: boolean;
+  is_close_friend: boolean;
+  is_muted: boolean;
   nickname: string | null;
-  privateNote: string | null;
-  mutualFriendsCount: number;
+  private_note: string | null;
+  mutual_friends_count: number;
 }
 
 export interface FriendRequest {
   id: string;
-  fromUserId: string;
-  fromUserName: string;
-  fromUserAvatar: string;
-  fromUserOdm: string;
-  toUserId: string;
+  sender_id: string;
+  from_user_name: string;
+  from_user_avatar: string;
+  from_user_odm: string;
+  receiver_id: string;
   message: string | null;
   status: 'pending' | 'accepted' | 'declined' | 'cancelled';
-  createdAt: Date;
-  mutualFriendsCount: number;
+  created_at: number;
+  mutual_friends_count: number;
 }
 
 export interface BlockedUser {
   id: string;
   odm_userId: string;
-  userName: string;
-  userAvatar: string;
-  blockedAt: Date;
+  blocked_user_id: string;
+  user_name: string;
+  user_avatar: string;
+  blocked_at: number;
   reason: string | null;
 }
 
 export interface PrivacySettings {
-  lastSeenVisibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
-  profilePhotoVisibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
-  bioVisibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
-  onlineStatusVisibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
-  storyVisibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
-  canReceiveRequestsFrom: 'everyone' | 'friends_of_friends' | 'nobody';
-  showMutualFriends: boolean;
-  allowFriendSuggestions: boolean;
+  last_seen_visibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
+  profile_photo_visibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
+  bio_visibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
+  online_status_visibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
+  story_visibility: 'everyone' | 'friends' | 'close_friends' | 'nobody';
+  can_receive_requests_from: 'everyone' | 'friends_of_friends' | 'nobody';
+  show_mutual_friends: boolean;
+  allow_friend_suggestions: boolean;
 }
 
 // Friend Suggestions removed as per user request
@@ -66,7 +67,14 @@ class FriendServiceClass {
   private currentUserId: string | null = null;
 
   setCurrentUser(userId: string) {
-    this.currentUserId = userId;
+    if (userId) {
+      console.log('FriendService: Setting current user to', userId);
+      this.currentUserId = userId;
+    }
+  }
+
+  getCurrentUser(): string | null {
+    return this.currentUserId;
   }
 
   // ==================== FRIEND REQUESTS ====================
@@ -75,12 +83,13 @@ class FriendServiceClass {
     toUserId: string,
     message?: string
   ): Promise<{ success: boolean; error?: string }> {
-    if (!this.currentUserId) {
-      return { success: false, error: 'Not logged in' };
-    }
+    if (!this.currentUserId) return { success: false, error: 'Not logged in' };
+
+    console.log(`FriendService: Sending request from ${this.currentUserId} to ${toUserId}`);
 
     try {
       if (toUserId === this.currentUserId) {
+        console.warn('FriendService: Attempted to send request to self');
         return { success: false, error: 'Cannot add yourself as friend' };
       }
 
@@ -90,7 +99,7 @@ class FriendServiceClass {
         .equals(this.currentUserId)
         .filter(f => f.friendId === toUserId)
         .first();
-      
+
       if (existingFriend) {
         return { success: false, error: 'Already friends' };
       }
@@ -99,32 +108,33 @@ class FriendServiceClass {
       const blocked = await db.blockedUsers
         .where('odm_userId')
         .equals(this.currentUserId)
-        .filter(b => b.blockedUserId === toUserId)
+        .filter(b => b.blocked_user_id === toUserId)
         .first();
-      
+
       if (blocked) {
         return { success: false, error: 'User is blocked. Unblock first.' };
       }
 
       // Check if request already pending
       const existingRequest = await db.friendRequests
-        .where('fromUserId')
+        .where('sender_id')
         .equals(this.currentUserId)
-        .filter(r => r.toUserId === toUserId && r.status === 'pending')
+        .filter(r => r.receiver_id === toUserId && r.status === 'pending')
         .first();
-      
+
       if (existingRequest) {
         return { success: false, error: 'Request already sent' };
       }
 
-      // Check if they sent you a request (auto-accept)
+      // Check if they sent you a request (auto-accept mutual request)
       const theirRequest = await db.friendRequests
-        .where('fromUserId')
+        .where('sender_id')
         .equals(toUserId)
-        .filter(r => r.toUserId === this.currentUserId && r.status === 'pending')
+        .filter(r => r.receiver_id === this.currentUserId && r.status === 'pending')
         .first();
-      
+
       if (theirRequest) {
+        console.log('FriendService: Found mutual request, auto-accepting');
         return await this.acceptFriendRequest(theirRequest.id);
       }
 
@@ -138,29 +148,35 @@ class FriendServiceClass {
       const requestId = `fr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const request: FriendRequest = {
         id: requestId,
-        fromUserId: this.currentUserId,
-        fromUserName: currentUser?.displayName || 'Unknown',
-        fromUserAvatar: currentUser?.avatar || '',
-        fromUserOdm: currentUser?.odm || '',
-        toUserId,
+        sender_id: this.currentUserId,
+        from_user_name: currentUser?.display_name || 'Unknown',
+        from_user_avatar: currentUser?.avatar_url || '',
+        from_user_odm: currentUser?.odm || '',
+        receiver_id: toUserId,
         message: message || null,
         status: 'pending',
-        createdAt: new Date(),
-        mutualFriendsCount: mutualCount
+        created_at: Date.now(),
+        mutual_friends_count: mutualCount
       };
 
       await db.friendRequests.add(request as any);
 
       // Sync to Supabase
       if (supabase) {
-        await supabase.from('friend_requests').insert({
+        console.log('FriendService: Syncing request to Supabase', { sender_id: this.currentUserId, receiver_id: toUserId });
+        const { error } = await supabase.from('friend_requests').insert({
           id: requestId,
-          from_user_id: this.currentUserId,
-          to_user_id: toUserId,
+          sender_id: this.currentUserId,
+          receiver_id: toUserId,
           message: message || null,
           status: 'pending',
           created_at: new Date().toISOString()
         });
+
+        if (error) {
+          console.error('FriendService: Supabase insert error:', error);
+          throw error;
+        }
       }
 
       return { success: true };
@@ -175,7 +191,7 @@ class FriendServiceClass {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const request = await db.friendRequests.get(requestId);
-      
+
       if (!request) {
         return { success: false, error: 'Request not found' };
       }
@@ -188,50 +204,53 @@ class FriendServiceClass {
       await db.friendRequests.update(requestId, { status: 'accepted' });
 
       // Get both users' info
-      const fromUser = await db.contacts.get(request.fromUserId);
-      const toUser = await db.contacts.get(request.toUserId);
+      const fromUser = await db.contacts.get(request.sender_id);
+      const toUser = await db.contacts.get(request.receiver_id);
 
-      const friendshipDate = new Date();
+      const now = Date.now();
 
-      // Create friendship for user 1
-      await db.friends.add({
-        id: `f_${request.fromUserId}_${request.toUserId}`,
-        odm_odm_userId: request.fromUserId,
-        friendId: request.toUserId,
-        displayName: toUser?.displayName || 'Unknown',
-        avatar: toUser?.avatar || '',
-        odm: toUser?.odm || '',
-        bio: toUser?.bio || '',
-        isOnline: false,
-        lastSeen: null,
-        friendshipDate,
-        isBestFriend: false,
-        isCloseFriend: false,
-        isMuted: false,
-        nickname: null,
-        privateNote: null,
-        mutualFriendsCount: 0
-      } as any);
+      // Create friendship for both users (mutual connection)
+      // Note: In Supabase, the trigger will handle the server-side friendship creation
+      // but we need to update local Dexie DB.
 
-      // Create friendship for user 2
-      await db.friends.add({
-        id: `f_${request.toUserId}_${request.fromUserId}`,
-        odm_odm_userId: request.toUserId,
-        friendId: request.fromUserId,
-        displayName: fromUser?.displayName || 'Unknown',
-        avatar: fromUser?.avatar || '',
-        odm: fromUser?.odm || '',
-        bio: fromUser?.bio || '',
-        isOnline: false,
-        lastSeen: null,
-        friendshipDate,
-        isBestFriend: false,
-        isCloseFriend: false,
-        isMuted: false,
-        nickname: null,
-        privateNote: null,
-        mutualFriendsCount: 0
-      } as any);
+      await db.friends.bulkAdd([
+        {
+          id: `f_${request.sender_id}_${request.receiver_id}`,
+          odm_odm_userId: request.sender_id,
+          friendId: request.receiver_id,
+          display_name: toUser?.display_name || 'Unknown',
+          avatar: toUser?.avatar_url || '',
+          odm: toUser?.odm || '',
+          bio: toUser?.bio || '',
+          is_online: false,
+          last_seen: null,
+          friendship_date: now,
+          is_best_friend: false,
+          is_close_friend: false,
+          is_muted: false,
+          nickname: null,
+          private_note: null,
+          mutual_friends_count: 0
+        },
+        {
+          id: `f_${request.receiver_id}_${request.sender_id}`,
+          odm_odm_userId: request.receiver_id,
+          friendId: request.sender_id,
+          display_name: fromUser?.display_name || 'Unknown',
+          avatar: fromUser?.avatar_url || '',
+          odm: fromUser?.odm || '',
+          bio: fromUser?.bio || '',
+          is_online: false,
+          last_seen: null,
+          friendship_date: now,
+          is_best_friend: false,
+          is_close_friend: false,
+          is_muted: false,
+          nickname: null,
+          private_note: null,
+          mutual_friends_count: 0
+        }
+      ] as any).catch(e => console.warn('Dexie friendship add warning:', e));
 
       // Sync to Supabase
       if (supabase) {
@@ -239,18 +258,7 @@ class FriendServiceClass {
           .update({ status: 'accepted' })
           .eq('id', requestId);
 
-        await supabase.from('friendships').insert([
-          {
-            user_id: request.fromUserId,
-            friend_id: request.toUserId,
-            created_at: friendshipDate.toISOString()
-          },
-          {
-            user_id: request.toUserId,
-            friend_id: request.fromUserId,
-            created_at: friendshipDate.toISOString()
-          }
-        ]);
+        // Friendships table insert is handled by DB trigger on friend_requests update to 'accepted'
       }
 
       return { success: true };
@@ -265,7 +273,7 @@ class FriendServiceClass {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const request = await db.friendRequests.get(requestId);
-      
+
       if (!request) {
         return { success: false, error: 'Request not found' };
       }
@@ -290,12 +298,12 @@ class FriendServiceClass {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const request = await db.friendRequests.get(requestId);
-      
+
       if (!request) {
         return { success: false, error: 'Request not found' };
       }
 
-      if (request.fromUserId !== this.currentUserId) {
+      if (request.sender_id !== this.currentUserId) {
         return { success: false, error: 'Cannot cancel this request' };
       }
 
@@ -333,13 +341,13 @@ class FriendServiceClass {
       if (options?.filterBy) {
         switch (options.filterBy) {
           case 'online':
-            friends = friends.filter(f => f.isOnline);
+            friends = friends.filter(f => f.is_online);
             break;
           case 'best_friends':
-            friends = friends.filter(f => f.isBestFriend);
+            friends = friends.filter(f => f.is_best_friend);
             break;
           case 'close_friends':
-            friends = friends.filter(f => f.isCloseFriend);
+            friends = friends.filter(f => f.is_close_friend);
             break;
         }
       }
@@ -347,8 +355,8 @@ class FriendServiceClass {
       // Apply search
       if (options?.search) {
         const searchLower = options.search.toLowerCase();
-        friends = friends.filter(f => 
-          f.displayName?.toLowerCase().includes(searchLower) ||
+        friends = friends.filter(f =>
+          f.display_name?.toLowerCase().includes(searchLower) ||
           f.odm?.toLowerCase().includes(searchLower) ||
           f.nickname?.toLowerCase().includes(searchLower)
         );
@@ -358,34 +366,32 @@ class FriendServiceClass {
       if (options?.sortBy) {
         switch (options.sortBy) {
           case 'name':
-            friends.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+            friends.sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
             break;
           case 'recent':
             friends.sort((a, b) => {
-              const aTime = a.lastSeen ? new Date(a.lastSeen).getTime() : 0;
-              const bTime = b.lastSeen ? new Date(b.lastSeen).getTime() : 0;
+              const aTime = a.last_seen || 0;
+              const bTime = b.last_seen || 0;
               return bTime - aTime;
             });
             break;
           case 'online':
             friends.sort((a, b) => {
-              if (a.isOnline && !b.isOnline) return -1;
-              if (!a.isOnline && b.isOnline) return 1;
+              if (a.is_online && !b.is_online) return -1;
+              if (!a.is_online && b.is_online) return 1;
               return 0;
             });
             break;
           case 'friendship_date':
-            friends.sort((a, b) => 
-              new Date(b.friendshipDate).getTime() - new Date(a.friendshipDate).getTime()
-            );
+            friends.sort((a, b) => (b.friendship_date || 0) - (a.friendship_date || 0));
             break;
         }
       }
 
       // Best friends always on top
       friends.sort((a, b) => {
-        if (a.isBestFriend && !b.isBestFriend) return -1;
-        if (!a.isBestFriend && b.isBestFriend) return 1;
+        if (a.is_best_friend && !b.is_best_friend) return -1;
+        if (!a.is_best_friend && b.is_best_friend) return 1;
         return 0;
       });
 
@@ -410,7 +416,7 @@ class FriendServiceClass {
         .equals(this.currentUserId)
         .filter(f => f.friendId === friendId)
         .delete();
-      
+
       await db.friends
         .where('odm_odm_userId')
         .equals(friendId)
@@ -441,8 +447,8 @@ class FriendServiceClass {
         .first();
 
       if (friend) {
-        const newStatus = !friend.isBestFriend;
-        await db.friends.update(friend.id, { isBestFriend: newStatus });
+        const newStatus = !friend.is_best_friend;
+        await db.friends.update(friend.id, { is_best_friend: newStatus });
         return newStatus;
       }
       return false;
@@ -463,8 +469,8 @@ class FriendServiceClass {
         .first();
 
       if (friend) {
-        const newStatus = !friend.isCloseFriend;
-        await db.friends.update(friend.id, { isCloseFriend: newStatus });
+        const newStatus = !friend.is_close_friend;
+        await db.friends.update(friend.id, { is_close_friend: newStatus });
         return newStatus;
       }
       return false;
@@ -506,7 +512,7 @@ class FriendServiceClass {
         .first();
 
       if (friend) {
-        await db.friends.update(friend.id, { privateNote: note });
+        await db.friends.update(friend.id, { private_note: note });
         return true;
       }
       return false;
@@ -527,8 +533,8 @@ class FriendServiceClass {
         .first();
 
       if (friend) {
-        const newStatus = !friend.isMuted;
-        await db.friends.update(friend.id, { isMuted: newStatus });
+        const newStatus = !friend.is_muted;
+        await db.friends.update(friend.id, { is_muted: newStatus });
         return newStatus;
       }
       return false;
@@ -552,9 +558,9 @@ class FriendServiceClass {
       const existing = await db.blockedUsers
         .where('odm_userId')
         .equals(this.currentUserId)
-        .filter(b => b.blockedUserId === userId)
+        .filter(b => b.blocked_user_id === userId)
         .first();
-      
+
       if (existing) {
         return { success: false, error: 'Already blocked' };
       }
@@ -564,25 +570,25 @@ class FriendServiceClass {
       await db.blockedUsers.add({
         id: `block_${this.currentUserId}_${userId}`,
         odm_userId: this.currentUserId,
-        blockedUserId: userId,
-        userName: user?.displayName || 'Unknown',
-        userAvatar: user?.avatar || '',
-        blockedAt: new Date(),
+        blocked_user_id: userId,
+        user_name: user?.display_name || 'Unknown',
+        user_avatar: user?.avatar_url || '',
+        blocked_at: Date.now(),
         reason: reason || null
       } as any);
 
       await this.removeFriend(userId);
 
       await db.friendRequests
-        .where('fromUserId')
+        .where('sender_id')
         .equals(this.currentUserId)
-        .filter(r => r.toUserId === userId && r.status === 'pending')
+        .filter(r => r.receiver_id === userId && r.status === 'pending')
         .modify({ status: 'cancelled' });
-      
+
       await db.friendRequests
-        .where('fromUserId')
+        .where('sender_id')
         .equals(userId)
-        .filter(r => r.toUserId === this.currentUserId && r.status === 'pending')
+        .filter(r => r.receiver_id === this.currentUserId && r.status === 'pending')
         .modify({ status: 'declined' });
 
       if (supabase) {
@@ -610,7 +616,7 @@ class FriendServiceClass {
       await db.blockedUsers
         .where('odm_userId')
         .equals(this.currentUserId)
-        .filter(b => b.blockedUserId === userId)
+        .filter(b => b.blocked_user_id === userId)
         .delete();
 
       if (supabase) {
@@ -635,8 +641,8 @@ class FriendServiceClass {
         .where('odm_userId')
         .equals(this.currentUserId)
         .toArray();
-      
-      return blocked as BlockedUser[];
+
+      return blocked as any[];
     } catch (error) {
       console.error('Get blocked users error:', error);
       return [];
@@ -650,9 +656,9 @@ class FriendServiceClass {
       const blocked = await db.blockedUsers
         .where('odm_userId')
         .equals(this.currentUserId)
-        .filter(b => b.blockedUserId === userId)
+        .filter(b => b.blocked_user_id === userId)
         .first();
-      
+
       return !!blocked;
     } catch {
       return false;
@@ -666,9 +672,9 @@ class FriendServiceClass {
       const blocked = await db.blockedUsers
         .where('odm_userId')
         .equals(userId)
-        .filter(b => b.blockedUserId === this.currentUserId)
+        .filter(b => b.blocked_user_id === this.currentUserId)
         .first();
-      
+
       return !!blocked;
     } catch {
       return false;
@@ -685,7 +691,7 @@ class FriendServiceClass {
         .where('odm_odm_userId')
         .equals(this.currentUserId)
         .toArray();
-      
+
       const theirFriends = await db.friends
         .where('odm_odm_userId')
         .equals(userId)
@@ -708,7 +714,7 @@ class FriendServiceClass {
         .where('odm_odm_userId')
         .equals(this.currentUserId)
         .toArray();
-      
+
       const theirFriends = await db.friends
         .where('odm_odm_userId')
         .equals(userId)
@@ -723,8 +729,6 @@ class FriendServiceClass {
     }
   }
 
-  // Friend Suggestions feature removed
-
   // ==================== SEARCH ====================
 
   async searchUsers(
@@ -736,12 +740,13 @@ class FriendServiceClass {
     }
   ): Promise<{
     id: string;
-    displayName: string;
+    display_name: string;
     odm: string;
     avatar: string;
     isFriend: boolean;
     isPending: boolean;
-    mutualFriendsCount: number;
+    mutual_friends_count: number;
+    email?: string;
   }[]> {
     if (!this.currentUserId || !query.trim()) return [];
 
@@ -750,11 +755,11 @@ class FriendServiceClass {
       const queryLower = query.toLowerCase().trim();
 
       let results = await db.contacts
-        .filter(c => 
+        .filter(c =>
           c.id !== this.currentUserId &&
-          ((c.displayName || '').toLowerCase().includes(queryLower) ||
-           (c.odm || '').toLowerCase().includes(queryLower) ||
-           (c.email || '').toLowerCase().includes(queryLower))
+          ((c.display_name || '').toLowerCase().includes(queryLower) ||
+            (c.odm || '').toLowerCase().includes(queryLower) ||
+            (c.email || '').toLowerCase().includes(queryLower))
         )
         .limit(limit)
         .toArray();
@@ -772,9 +777,9 @@ class FriendServiceClass {
             if (!results.find(lr => lr.id === r.id)) {
               results.push({
                 id: r.id,
-                displayName: r.display_name,
+                display_name: r.display_name,
                 odm: r.odm,
-                avatar: r.avatar_url,
+                avatar_url: r.avatar_url,
                 email: ''
               } as any);
             }
@@ -791,15 +796,15 @@ class FriendServiceClass {
             .first());
 
           const sentRequest = await db.friendRequests
-            .where('fromUserId')
+            .where('sender_id')
             .equals(this.currentUserId!)
-            .filter(r => r.toUserId === user.id && r.status === 'pending')
+            .filter(r => r.receiver_id === user.id && r.status === 'pending')
             .first();
 
           const receivedRequest = await db.friendRequests
-            .where('fromUserId')
+            .where('sender_id')
             .equals(user.id)
-            .filter(r => r.toUserId === this.currentUserId && r.status === 'pending')
+            .filter(r => r.receiver_id === this.currentUserId! && r.status === 'pending')
             .first();
 
           const isPending = !!(sentRequest || receivedRequest);
@@ -809,21 +814,21 @@ class FriendServiceClass {
           if (options?.excludeFriends && isFriend) return null;
           if (options?.excludeBlocked && isBlocked) return null;
 
-          const mutualFriendsCount = await this.getMutualFriendsCount(user.id);
+          const mfc = await this.getMutualFriendsCount(user.id);
 
           return {
             id: user.id,
-            displayName: user.displayName || 'Unknown',
+            display_name: user.display_name || 'Unknown',
             odm: user.odm || '',
-            avatar: user.avatar || '',
+            avatar: (user as any).avatar_url || (user as any).avatar || '',
             isFriend,
             isPending,
-            mutualFriendsCount
+            mutual_friends_count: mfc
           };
         })
       );
 
-      return enrichedResults.filter(Boolean) as any;
+      return enrichedResults.filter((r): r is NonNullable<typeof r> => r !== null);
     } catch (error) {
       console.error('Search users error:', error);
       return [];
@@ -851,14 +856,14 @@ class FriendServiceClass {
 
   private getDefaultPrivacySettings(): PrivacySettings {
     return {
-      lastSeenVisibility: 'everyone',
-      profilePhotoVisibility: 'everyone',
-      bioVisibility: 'everyone',
-      onlineStatusVisibility: 'everyone',
-      storyVisibility: 'friends',
-      canReceiveRequestsFrom: 'everyone',
-      showMutualFriends: true,
-      allowFriendSuggestions: true
+      last_seen_visibility: 'everyone',
+      profile_photo_visibility: 'everyone',
+      bio_visibility: 'everyone',
+      online_status_visibility: 'everyone',
+      story_visibility: 'friends',
+      can_receive_requests_from: 'everyone',
+      show_mutual_friends: true,
+      allow_friend_suggestions: true
     };
   }
 
@@ -897,13 +902,13 @@ class FriendServiceClass {
 
     try {
       const requests = await db.friendRequests
-        .where('toUserId')
+        .where('receiver_id')
         .equals(this.currentUserId)
         .filter(r => r.status === 'pending')
         .reverse()
         .toArray();
-      
-      return requests as FriendRequest[];
+
+      return requests as any[];
     } catch (error) {
       console.error('Get incoming requests error:', error);
       return [];
@@ -915,13 +920,13 @@ class FriendServiceClass {
 
     try {
       const requests = await db.friendRequests
-        .where('fromUserId')
+        .where('sender_id')
         .equals(this.currentUserId)
         .filter(r => r.status === 'pending')
         .reverse()
         .toArray();
-      
-      return requests as FriendRequest[];
+
+      return requests as any[];
     } catch (error) {
       console.error('Get outgoing requests error:', error);
       return [];
@@ -933,7 +938,7 @@ class FriendServiceClass {
 
     try {
       return await db.friendRequests
-        .where('toUserId')
+        .where('receiver_id')
         .equals(this.currentUserId)
         .filter(r => r.status === 'pending')
         .count();

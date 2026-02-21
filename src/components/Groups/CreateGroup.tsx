@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { GroupService, Group } from './GroupService';
 
+import { useAppStore } from '@/store/appStore';
+
 interface CreateGroupProps {
   currentUserId: string;
   onClose: () => void;
@@ -13,6 +15,7 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
   onClose,
   onGroupCreated,
 }) => {
+  const { friends: storeFriends } = useAppStore();
   const [step, setStep] = useState<1 | 2>(1);
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
@@ -21,18 +24,17 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Demo friends list - in real app, this would come from friends list
-  const friends = [
-    { id: 'friend1', name: 'Alice Johnson', username: 'alice', avatar: '' },
-    { id: 'friend2', name: 'Bob Smith', username: 'bobsmith', avatar: '' },
-    { id: 'friend3', name: 'Carol Williams', username: 'carol', avatar: '' },
-    { id: 'friend4', name: 'David Brown', username: 'david', avatar: '' },
-    { id: 'friend5', name: 'Eva Martinez', username: 'eva', avatar: '' },
-  ].filter(f => f.id !== currentUserId);
+  // Use real friends list
+  const friends = storeFriends.map(f => ({
+    id: f.id,
+    name: f.display_name,
+    username: f.username,
+    avatar: f.avatar_url || ''
+  }));
 
   const filteredFriends = friends.filter(
     f => f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-         f.username.toLowerCase().includes(searchQuery.toLowerCase())
+      f.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,8 +84,8 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900">
       {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-gray-200 dark:border-gray-700">
-        <button 
-          onClick={step === 1 ? onClose : () => setStep(1)} 
+        <button
+          onClick={step === 1 ? onClose : () => setStep(1)}
           className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,9 +120,9 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
                   className="hidden"
                 />
                 {groupIcon ? (
-                  <img 
-                    src={groupIcon} 
-                    alt="Group icon" 
+                  <img
+                    src={groupIcon}
+                    alt="Group icon"
                     className="w-24 h-24 rounded-full object-cover"
                   />
                 ) : (
@@ -191,7 +193,7 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
                 {selectedMembers.map(memberId => {
                   const friend = friends.find(f => f.id === memberId);
                   return (
-                    <div 
+                    <div
                       key={memberId}
                       className="flex-shrink-0 flex items-center gap-2 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 rounded-full"
                     >
@@ -224,10 +226,10 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
                 placeholder="Search friends..."
                 className="w-full px-4 py-3 pl-10 border border-gray-300 dark:border-gray-600 rounded-xl bg-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
-              <svg 
-                className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2"
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -246,16 +248,15 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
                 <button
                   key={friend.id}
                   onClick={() => toggleMember(friend.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl mb-2 transition-colors ${
-                    selectedMembers.includes(friend.id)
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl mb-2 transition-colors ${selectedMembers.includes(friend.id)
                       ? 'bg-purple-50 dark:bg-purple-900/30'
                       : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
+                    }`}
                 >
                   {/* Avatar */}
                   {friend.avatar ? (
-                    <img 
-                      src={friend.avatar} 
+                    <img
+                      src={friend.avatar}
                       alt={friend.name}
                       className="w-12 h-12 rounded-full object-cover"
                     />
@@ -272,11 +273,10 @@ export const CreateGroup: React.FC<CreateGroupProps> = ({
                   </div>
 
                   {/* Checkbox */}
-                  <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                    selectedMembers.includes(friend.id)
+                  <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selectedMembers.includes(friend.id)
                       ? 'bg-purple-500 border-purple-500'
                       : 'border-gray-300 dark:border-gray-600'
-                  }`}>
+                    }`}>
                     {selectedMembers.includes(friend.id) && (
                       <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

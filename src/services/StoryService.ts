@@ -4,56 +4,56 @@ import { supabase } from '../lib/supabase';
 // Types
 export interface Story {
   id: string;
-  odId: string;
-  userId: string;
-  userName: string;
-  userAvatar: string;
+  od_id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
   type: 'text' | 'image' | 'video';
   content: string;
   thumbnail?: string;
-  backgroundColor?: string;
-  textColor?: string;
-  fontStyle?: string;
+  background_color?: string;
+  text_color?: string;
+  font_style?: string;
   caption?: string;
   duration: number;
-  viewCount: number;
+  view_count: number;
   viewers: StoryViewer[];
   reactions: StoryReaction[];
-  createdAt: Date;
-  expiresAt: Date;
-  isViewed: boolean;
-  isMuted: boolean;
+  created_at: number;
+  expires_at: number;
+  is_viewed: boolean;
+  is_muted: boolean;
   privacy: 'everyone' | 'contacts' | 'close_friends' | 'except';
-  exceptUsers?: string[];
-  mediaPath?: string;
+  except_users?: string[];
+  media_path?: string;
 }
 
 export interface StoryViewer {
   id: string;
-  odId: string;
-  odIdx: string;
-  userId: string;
-  userName: string;
-  userAvatar: string;
-  viewedAt: Date;
+  od_id: string;
+  od_idx: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  viewed_at: number;
   reaction?: string;
 }
 
 export interface StoryReaction {
-  userId: string;
-  userName: string;
+  user_id: string;
+  user_name: string;
   reaction: string;
-  createdAt: Date;
+  created_at: number;
 }
 
 export interface UserStories {
-  odId: string;
-  userId: string;
-  userName: string;
-  userAvatar: string;
+  od_id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
   stories: Story[];
-  hasUnviewed: boolean;
-  lastUpdated: Date;
+  has_unviewed: boolean;
+  last_updated: number;
 }
 
 // Background colors for text stories
@@ -135,25 +135,25 @@ class StoryServiceClass {
 
       return {
         id: storyId,
-        odId: storyId,
-        userId: this.currentUserId,
-        userName: userData?.display_name || 'User',
-        userAvatar: userData?.avatar_url || '',
+        od_id: storyId,
+        user_id: this.currentUserId,
+        user_name: userData?.display_name || 'User',
+        user_avatar: userData?.avatar_url || '',
         type: 'text',
         content: text,
-        backgroundColor,
-        textColor,
-        fontStyle,
+        background_color: backgroundColor,
+        text_color: textColor,
+        font_style: fontStyle,
         duration: 5,
-        viewCount: 0,
+        view_count: 0,
         viewers: [],
         reactions: [],
-        createdAt: now,
-        expiresAt,
-        isViewed: true,
-        isMuted: false,
+        created_at: now.getTime(),
+        expires_at: expiresAt.getTime(),
+        is_viewed: true,
+        is_muted: false,
         privacy,
-        exceptUsers,
+        except_users: exceptUsers,
       };
     } catch (error) {
       console.error('Error creating text story:', error);
@@ -182,7 +182,7 @@ class StoryServiceClass {
         fileToUpload = await this.compressImage(file);
       }
 
-      const thumbnail = type === 'image' 
+      const thumbnail = type === 'image'
         ? await this.generateThumbnail(file)
         : undefined;
 
@@ -220,25 +220,25 @@ class StoryServiceClass {
 
       return {
         id: storyId,
-        odId: storyId,
-        userId: this.currentUserId,
-        userName: userData?.display_name || 'User',
-        userAvatar: userData?.avatar_url || '',
+        od_id: storyId,
+        user_id: this.currentUserId,
+        user_name: userData?.display_name || 'User',
+        user_avatar: userData?.avatar_url || '',
         type,
         content: urlData.publicUrl,
         thumbnail,
         caption,
         duration: type === 'video' ? 15 : 5,
-        viewCount: 0,
+        view_count: 0,
         viewers: [],
         reactions: [],
-        createdAt: now,
-        expiresAt,
-        isViewed: true,
-        isMuted: false,
+        created_at: now.getTime(),
+        expires_at: expiresAt.getTime(),
+        is_viewed: true,
+        is_muted: false,
         privacy,
-        exceptUsers,
-        mediaPath: fileName,
+        except_users: exceptUsers,
+        media_path: fileName,
       };
     } catch (error) {
       console.error('Error creating media story:', error);
@@ -329,6 +329,9 @@ class StoryServiceClass {
     if (!this.currentUserId) return [];
 
     try {
+      // Auto-cleanup: Delete expired stories before fetching
+      await this.cleanupExpiredStories();
+
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
       const { data: stories, error } = await supabase
@@ -351,75 +354,76 @@ class StoryServiceClass {
           continue;
         }
 
-        const odId = story.user_id;
-        if (!userStoriesMap.has(odId)) {
-          userStoriesMap.set(odId, {
-            odId: odId,
-            userId: odId,
-            userName: story.profiles?.display_name || 'User',
-            userAvatar: story.profiles?.avatar_url || '',
+        const od_id = story.user_id;
+        if (!userStoriesMap.has(od_id)) {
+          userStoriesMap.set(od_id, {
+            od_id: od_id,
+            user_id: od_id,
+            user_name: story.profiles?.display_name || 'User',
+            user_avatar: story.profiles?.avatar_url || '',
             stories: [],
-            hasUnviewed: false,
-            lastUpdated: new Date(story.created_at),
+            has_unviewed: false,
+            last_updated: new Date(story.created_at).getTime(),
           });
         }
 
-        const userStories = userStoriesMap.get(odId)!;
+        const userStories = userStoriesMap.get(od_id)!;
         const isViewed = story.story_views?.some(
           (v: { viewer_id: string }) => v.viewer_id === this.currentUserId
         ) || false;
 
         userStories.stories.push({
           id: story.id,
-          odId: story.id,
-          userId: story.user_id,
-          userName: story.profiles?.display_name || 'User',
-          userAvatar: story.profiles?.avatar_url || '',
+          od_id: story.id,
+          user_id: story.user_id,
+          user_name: story.profiles?.display_name || 'User',
+          user_avatar: story.profiles?.avatar_url || '',
           type: story.type,
           content: story.content,
           thumbnail: story.thumbnail,
-          backgroundColor: story.background_color,
-          textColor: story.text_color,
-          fontStyle: story.font_style,
+          background_color: story.background_color,
+          text_color: story.text_color,
+          font_style: story.font_style,
           caption: story.caption,
           duration: story.duration || 5,
-          viewCount: story.story_views?.length || 0,
+          view_count: story.story_views?.length || 0,
           viewers: (story.story_views || []).map((v: any) => ({
             id: v.id,
-            odId: v.id,
-            odIdx: v.viewer_id,
-            userId: v.viewer_id,
-            userName: v.viewer_name,
-            userAvatar: v.viewer_avatar,
-            viewedAt: new Date(v.viewed_at),
+            od_id: v.id,
+            od_idx: v.viewer_id,
+            user_id: v.viewer_id,
+            user_name: v.viewer_name,
+            user_avatar: v.viewer_avatar,
+            viewed_at: new Date(v.viewed_at).getTime(),
+            reaction: story.story_reactions?.find((r: any) => r.user_id === v.viewer_id)?.reaction,
           })),
           reactions: (story.story_reactions || []).map((r: any) => ({
-            userId: r.user_id,
-            userName: r.user_name,
+            user_id: r.user_id,
+            user_name: r.user_name,
             reaction: r.reaction,
-            createdAt: new Date(r.created_at),
+            created_at: new Date(r.created_at).getTime(),
           })),
-          createdAt: new Date(story.created_at),
-          expiresAt: new Date(story.expires_at),
-          isViewed,
-          isMuted: false,
+          created_at: new Date(story.created_at).getTime(),
+          expires_at: new Date(story.expires_at).getTime(),
+          is_viewed: isViewed,
+          is_muted: false,
           privacy: story.privacy,
-          exceptUsers: story.except_users,
-          mediaPath: story.media_path,
+          except_users: story.except_users,
+          media_path: story.media_path,
         });
 
         if (!isViewed) {
-          userStories.hasUnviewed = true;
+          userStories.has_unviewed = true;
         }
       }
 
       const result = Array.from(userStoriesMap.values());
       result.sort((a, b) => {
-        if (a.userId === this.currentUserId) return -1;
-        if (b.userId === this.currentUserId) return 1;
-        if (a.hasUnviewed && !b.hasUnviewed) return -1;
-        if (!a.hasUnviewed && b.hasUnviewed) return 1;
-        return b.lastUpdated.getTime() - a.lastUpdated.getTime();
+        if (a.user_id === this.currentUserId) return -1;
+        if (b.user_id === this.currentUserId) return 1;
+        if (a.has_unviewed && !b.has_unviewed) return -1;
+        if (!a.has_unviewed && b.has_unviewed) return 1;
+        return b.last_updated - a.last_updated;
       });
 
       return result;
@@ -450,41 +454,42 @@ class StoryServiceClass {
 
       return (stories || []).map(story => ({
         id: story.id,
-        odId: story.id,
-        userId: story.user_id,
-        userName: 'You',
-        userAvatar: '',
+        od_id: story.id,
+        user_id: story.user_id,
+        user_name: 'You',
+        user_avatar: '',
         type: story.type,
         content: story.content,
         thumbnail: story.thumbnail,
-        backgroundColor: story.background_color,
-        textColor: story.text_color,
-        fontStyle: story.font_style,
+        background_color: story.background_color,
+        text_color: story.text_color,
+        font_style: story.font_style,
         caption: story.caption,
         duration: story.duration || 5,
-        viewCount: story.story_views?.length || 0,
+        view_count: story.story_views?.length || 0,
         viewers: (story.story_views || []).map((v: any) => ({
           id: v.id,
-          odId: v.id,
-          odIdx: v.viewer_id,
-          userId: v.viewer_id,
-          userName: v.viewer_name,
-          userAvatar: v.viewer_avatar,
-          viewedAt: new Date(v.viewed_at),
+          od_id: v.id,
+          od_idx: v.viewer_id,
+          user_id: v.viewer_id,
+          user_name: v.viewer_name,
+          user_avatar: v.viewer_avatar,
+          viewed_at: new Date(v.viewed_at).getTime(),
+          reaction: story.story_reactions?.find((r: any) => r.user_id === v.viewer_id)?.reaction,
         })),
         reactions: (story.story_reactions || []).map((r: any) => ({
-          userId: r.user_id,
-          userName: r.user_name,
+          user_id: r.user_id,
+          user_name: r.user_name,
           reaction: r.reaction,
-          createdAt: new Date(r.created_at),
+          created_at: new Date(r.created_at).getTime(),
         })),
-        createdAt: new Date(story.created_at),
-        expiresAt: new Date(story.expires_at),
-        isViewed: true,
-        isMuted: false,
+        created_at: new Date(story.created_at).getTime(),
+        expires_at: new Date(story.expires_at).getTime(),
+        is_viewed: true,
+        is_muted: false,
         privacy: story.privacy,
-        exceptUsers: story.except_users,
-        mediaPath: story.media_path,
+        except_users: story.except_users,
+        media_path: story.media_path,
       }));
     } catch (error) {
       console.error('Error fetching my stories:', error);
@@ -504,12 +509,12 @@ class StoryServiceClass {
 
       return (data || []).map(v => ({
         id: v.id,
-        odId: v.id,
-        odIdx: v.viewer_id,
-        userId: v.viewer_id,
-        userName: v.viewer_name,
-        userAvatar: v.viewer_avatar,
-        viewedAt: new Date(v.viewed_at),
+        od_id: v.id,
+        od_idx: v.viewer_id,
+        user_id: v.viewer_id,
+        user_name: v.viewer_name,
+        user_avatar: v.viewer_avatar,
+        viewed_at: new Date(v.viewed_at).getTime(),
         reaction: v.reaction,
       }));
     } catch (error) {
@@ -565,6 +570,37 @@ class StoryServiceClass {
       }
     } catch (error) {
       console.error('Error muting stories:', error);
+    }
+  }
+
+  private async cleanupExpiredStories(): Promise<void> {
+    try {
+      const now = new Date().toISOString();
+
+      // Get expired stories with media paths
+      const { data: expired } = await supabase
+        .from('stories')
+        .select('id, media_path')
+        .lt('expires_at', now);
+
+      if (expired && expired.length > 0) {
+        const ids = expired.map(s => s.id);
+        const paths = expired.map(s => s.media_path).filter(Boolean) as string[];
+
+        // Remove from storage
+        if (paths.length > 0) {
+          await supabase.storage.from('media').remove(paths);
+        }
+
+        // Remove from DB (Cascade should handle views/reactions, but we do it manually for safety)
+        await supabase.from('story_views').delete().in('story_id', ids);
+        await supabase.from('story_reactions').delete().in('story_id', ids);
+        await supabase.from('stories').delete().in('id', ids);
+
+        console.log(`🧹 Cleaned up ${ids.length} expired stories`);
+      }
+    } catch (error) {
+      console.error('Auto-cleanup error:', error);
     }
   }
 
@@ -640,7 +676,7 @@ class StoryServiceClass {
 
       const compressedFile = await this.compressImage(file);
       const fileName = `avatars/${this.currentUserId}/${Date.now()}.jpg`;
-      
+
       const { error: uploadError } = await supabase.storage
         .from('media')
         .upload(fileName, compressedFile);

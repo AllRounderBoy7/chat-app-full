@@ -19,35 +19,35 @@ export interface AppUser {
 
 export interface Message {
   id: string;
-  chatId: string;
+  chat_id: string;
   sender_id: string;
   receiver_id: string;
   content: string;
   iv: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'location' | 'contact' | 'sticker' | 'system' | 'poll' | 'file';
   file_url?: string;
   thumbnail?: string;
   reply_to?: string;
   forwarded_from?: string;
-  status: 'pending' | 'sent' | 'delivered' | 'read';
-  reactions?: Record<string, string>;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'scheduled';
+  reactions?: Record<string, string[]>;
   is_deleted?: boolean;
   deleted_for_everyone?: boolean;
-  edited_at?: string;
-  created_at: string;
+  edited_at?: string | number;
+  created_at: string | number;
 }
 
 export interface Chat {
   id: string;
-  oderId: string;
+  order_id: string;
   user: AppUser;
-  lastMessage?: Message;
-  unreadCount: number;
-  isTyping?: boolean;
-  isPinned?: boolean;
-  isMuted?: boolean;
-  isArchived?: boolean;
-  disappearingMessages?: number;
+  last_message?: Message;
+  unread_count: number;
+  is_typing?: boolean;
+  is_pinned?: boolean;
+  is_muted?: boolean;
+  is_archived?: boolean;
+  disappearing_messages?: number;
 }
 
 export interface FriendRequest {
@@ -102,18 +102,18 @@ export interface AdminSettings {
   registration_enabled: boolean;
   maintenance_mode: boolean;
   announcement?: string;
+  calls_enabled: boolean;
 }
 
 export interface ActiveCall {
   id: string;
-  peerId: string;
-  peerName: string;
-  peerAvatar?: string;
+  remoteUser: AppUser;
   type: 'voice' | 'video';
-  isIncoming: boolean;
-  status: 'ringing' | 'connecting' | 'connected' | 'ended' | 'busy' | 'no_answer';
-  startTime?: number;
+  isIncoming?: boolean;
+  status: 'calling' | 'incoming' | 'ringing' | 'connecting' | 'connected' | 'ended' | 'busy' | 'no_answer';
+  startTime?: string;
   usedTurn?: boolean;
+  incomingOffer?: any;
 }
 
 export interface Broadcast {
@@ -141,6 +141,28 @@ interface PersistedState {
     sound: boolean;
     vibrate: boolean;
     preview: boolean;
+    groupEnabled: boolean;
+    callEnabled: boolean;
+  };
+  privacySettings: {
+    lastSeen: 'everyone' | 'contacts' | 'nobody';
+    profilePhoto: 'everyone' | 'contacts' | 'nobody';
+    onlineStatus: 'everyone' | 'contacts' | 'nobody';
+    stories: 'everyone' | 'contacts';
+    readReceipts: boolean;
+    typingIndicator: boolean;
+  };
+  storageSettings: {
+    autoDownloadPhotos: 'always' | 'wifi' | 'never';
+    autoDownloadVideos: 'always' | 'wifi' | 'never';
+    autoDownloadDocs: 'always' | 'wifi' | 'never';
+    uploadQuality: 'original' | 'standard' | 'low';
+  };
+  accessibilitySettings: {
+    fontSize: number;
+    hapticFeedback: boolean;
+    reduceMotion: boolean;
+    highContrast: boolean;
   };
 }
 
@@ -150,42 +172,42 @@ interface AppState extends PersistedState {
   profile: AppUser | null;
   isAdmin: boolean;
   isAuthenticated: boolean;
-  
+
   // Navigation
   activeTab: 'chats' | 'stories' | 'friends' | 'calls' | 'settings' | 'admin';
-  
+
   // Chats
   chats: Chat[];
   activeChat: Chat | null;
   messages: Record<string, Message[]>;
   typingUsers: Record<string, boolean>;
-  
+
   // Friends
   friends: AppUser[];
   friendRequests: FriendRequest[];
   blockedUsers: string[];
-  
+
   // Stories
   stories: Story[];
   myStories: Story[];
-  
+
   // Calls
   callLogs: CallLog[];
   activeCall: ActiveCall | null;
-  
+
   // Security
   isAppLocked: boolean;
   showHiddenChats: boolean;
-  
+
   // Admin
   allUsers: AppUser[];
   broadcasts: Broadcast[];
-  
+
   // UI
   showInstallPrompt: boolean;
   isOnline: boolean;
   isSyncing: boolean;
-  
+
   // Actions
   setUser: (user: User | null) => void;
   setProfile: (profile: AppUser | null) => void;
@@ -235,6 +257,9 @@ interface AppState extends PersistedState {
   setIsOnline: (online: boolean) => void;
   setIsSyncing: (syncing: boolean) => void;
   setNotificationSettings: (settings: Partial<AppState['notificationSettings']>) => void;
+  setPrivacySettings: (settings: Partial<AppState['privacySettings']>) => void;
+  setStorageSettings: (settings: Partial<AppState['storageSettings']>) => void;
+  setAccessibilitySettings: (settings: Partial<AppState['accessibilitySettings']>) => void;
   logout: () => void;
   clearUnreadCount: (chatId: string) => void;
   incrementUnreadCount: (chatId: string) => void;
@@ -251,7 +276,8 @@ const defaultAdminSettings: AdminSettings = {
   max_friends: 500,
   disappearing_messages_hours: 0,
   registration_enabled: true,
-  maintenance_mode: false
+  maintenance_mode: false,
+  calls_enabled: true
 };
 
 const initialPersistedState: PersistedState = {
@@ -268,7 +294,29 @@ const initialPersistedState: PersistedState = {
     enabled: true,
     sound: true,
     vibrate: true,
-    preview: true
+    preview: true,
+    groupEnabled: true,
+    callEnabled: true
+  },
+  privacySettings: {
+    lastSeen: 'everyone',
+    profilePhoto: 'everyone',
+    onlineStatus: 'everyone',
+    stories: 'everyone',
+    readReceipts: true,
+    typingIndicator: true
+  },
+  storageSettings: {
+    autoDownloadPhotos: 'wifi',
+    autoDownloadVideos: 'never',
+    autoDownloadDocs: 'never',
+    uploadQuality: 'standard'
+  },
+  accessibilitySettings: {
+    fontSize: 100,
+    hapticFeedback: true,
+    reduceMotion: false,
+    highContrast: false
   }
 };
 
@@ -303,44 +351,44 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       ...initialState,
-      
+
       // Auth actions
       setUser: (user) => set({ user }),
       setProfile: (profile) => set({ profile }),
       setIsAdmin: (isAdmin) => set({ isAdmin }),
       setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
-      
+
       // Navigation
       setActiveTab: (activeTab) => set({ activeTab }),
-      
+
       // Chat actions
       setChats: (chats) => set({ chats }),
       setActiveChat: (activeChat) => set({ activeChat }),
-      
+
       addMessage: (chatId, message) => set((state) => {
         const existingMessages = state.messages[chatId] || [];
         // Avoid duplicates
         if (existingMessages.some(m => m.id === message.id)) {
           return state;
         }
-        
+
         const newMessages = [...existingMessages, message].sort(
           (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
-        
+
         // Update chat's last message
-        const updatedChats = state.chats.map(chat => 
-          chat.id === chatId 
-            ? { ...chat, lastMessage: message } 
+        const updatedChats = state.chats.map(chat =>
+          chat.id === chatId
+            ? { ...chat, last_message: message }
             : chat
         );
-        
+
         return {
           messages: { ...state.messages, [chatId]: newMessages },
           chats: updatedChats
         };
       }),
-      
+
       updateMessage: (chatId, messageId, updates) => set((state) => ({
         messages: {
           ...state.messages,
@@ -349,14 +397,14 @@ export const useAppStore = create<AppState>()(
           )
         }
       })),
-      
+
       deleteMessage: (chatId, messageId, forEveryone = false) => set((state) => {
         if (forEveryone) {
           return {
             messages: {
               ...state.messages,
               [chatId]: (state.messages[chatId] || []).map(msg =>
-                msg.id === messageId 
+                msg.id === messageId
                   ? { ...msg, is_deleted: true, deleted_for_everyone: true, content: '', file_url: undefined }
                   : msg
               )
@@ -370,27 +418,27 @@ export const useAppStore = create<AppState>()(
           }
         };
       }),
-      
+
       setMessages: (chatId, messages) => set((state) => ({
         messages: { ...state.messages, [chatId]: messages }
       })),
-      
+
       setTypingUser: (chatId, isTyping) => set((state) => ({
         typingUsers: { ...state.typingUsers, [chatId]: isTyping }
       })),
-      
+
       clearUnreadCount: (chatId) => set((state) => ({
         chats: state.chats.map(chat =>
-          chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
+          chat.id === chatId ? { ...chat, unread_count: 0 } : chat
         )
       })),
-      
+
       incrementUnreadCount: (chatId) => set((state) => ({
         chats: state.chats.map(chat =>
-          chat.id === chatId ? { ...chat, unreadCount: (chat.unreadCount || 0) + 1 } : chat
+          chat.id === chatId ? { ...chat, unread_count: (chat.unread_count || 0) + 1 } : chat
         )
       })),
-      
+
       // Friends actions
       setFriends: (friends) => set({ friends }),
       addFriend: (friend) => set((state) => ({
@@ -399,7 +447,7 @@ export const useAppStore = create<AppState>()(
       removeFriend: (friendId) => set((state) => ({
         friends: state.friends.filter(f => f.id !== friendId)
       })),
-      
+
       setFriendRequests: (friendRequests) => set({ friendRequests }),
       addFriendRequest: (request) => set((state) => ({
         friendRequests: [...state.friendRequests, request]
@@ -409,7 +457,7 @@ export const useAppStore = create<AppState>()(
           req.id === requestId ? { ...req, status } : req
         ).filter(req => req.status === 'pending')
       })),
-      
+
       setBlockedUsers: (blockedUsers) => set({ blockedUsers }),
       blockUser: (oderId) => set((state) => ({
         blockedUsers: [...state.blockedUsers, oderId],
@@ -418,12 +466,12 @@ export const useAppStore = create<AppState>()(
       unblockUser: (oderId) => set((state) => ({
         blockedUsers: state.blockedUsers.filter(id => id !== oderId)
       })),
-      
+
       // Stories actions
       setStories: (stories) => set({ stories }),
       addStory: (story) => set((state) => ({
         stories: [story, ...state.stories],
-        myStories: story.user_id === state.profile?.id 
+        myStories: story.user_id === state.profile?.id
           ? [story, ...state.myStories]
           : state.myStories
       })),
@@ -432,50 +480,50 @@ export const useAppStore = create<AppState>()(
         myStories: state.myStories.filter(s => s.id !== storyId)
       })),
       setMyStories: (myStories) => set({ myStories }),
-      
+
       // Call actions
       setCallLogs: (callLogs) => set({ callLogs }),
       addCallLog: (log) => set((state) => ({
         callLogs: [log, ...state.callLogs]
       })),
       setActiveCall: (activeCall) => set({ activeCall }),
-      
+
       // Security actions
       setIsAppLocked: (isAppLocked) => set({ isAppLocked }),
       setAppLockPin: (appLockPin) => set({ appLockPin }),
-      
+
       toggleChatLock: (chatId) => set((state) => ({
         lockedChats: state.lockedChats.includes(chatId)
           ? state.lockedChats.filter(id => id !== chatId)
           : [...state.lockedChats, chatId]
       })),
-      
+
       toggleChatHide: (chatId) => set((state) => ({
         hiddenChats: state.hiddenChats.includes(chatId)
           ? state.hiddenChats.filter(id => id !== chatId)
           : [...state.hiddenChats, chatId]
       })),
-      
+
       toggleChatPin: (chatId) => set((state) => ({
         pinnedChats: state.pinnedChats.includes(chatId)
           ? state.pinnedChats.filter(id => id !== chatId)
           : [...state.pinnedChats, chatId]
       })),
-      
+
       toggleChatMute: (chatId) => set((state) => ({
         mutedChats: state.mutedChats.includes(chatId)
           ? state.mutedChats.filter(id => id !== chatId)
           : [...state.mutedChats, chatId]
       })),
-      
+
       toggleChatArchive: (chatId) => set((state) => ({
         archivedChats: state.archivedChats.includes(chatId)
           ? state.archivedChats.filter(id => id !== chatId)
           : [...state.archivedChats, chatId]
       })),
-      
+
       setShowHiddenChats: (showHiddenChats) => set({ showHiddenChats }),
-      
+
       setChatWallpaper: (chatId, wallpaper) => set((state) => {
         const newWallpapers = { ...state.chatWallpapers };
         if (wallpaper) {
@@ -485,14 +533,14 @@ export const useAppStore = create<AppState>()(
         }
         return { chatWallpapers: newWallpapers };
       }),
-      
+
       // Admin actions
       setAdminSettings: (settings) => set((state) => ({
         adminSettings: { ...state.adminSettings, ...settings }
       })),
-      
+
       setAllUsers: (allUsers) => set({ allUsers }),
-      
+
       updateUser: (oderId, updates) => set((state) => ({
         allUsers: state.allUsers.map(user =>
           user.id === oderId ? { ...user, ...updates } : user
@@ -501,7 +549,7 @@ export const useAppStore = create<AppState>()(
           friend.id === oderId ? { ...friend, ...updates } : friend
         )
       })),
-      
+
       setBroadcasts: (broadcasts) => set({ broadcasts }),
       addBroadcast: (broadcast) => set((state) => ({
         broadcasts: [broadcast, ...state.broadcasts]
@@ -513,7 +561,7 @@ export const useAppStore = create<AppState>()(
             : b
         )
       })),
-      
+
       // UI actions
       setTheme: (theme) => {
         document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -525,7 +573,16 @@ export const useAppStore = create<AppState>()(
       setNotificationSettings: (settings) => set((state) => ({
         notificationSettings: { ...state.notificationSettings, ...settings }
       })),
-      
+      setPrivacySettings: (settings) => set((state) => ({
+        privacySettings: { ...state.privacySettings, ...settings }
+      })),
+      setStorageSettings: (settings) => set((state) => ({
+        storageSettings: { ...state.storageSettings, ...settings }
+      })),
+      setAccessibilitySettings: (settings) => set((state) => ({
+        accessibilitySettings: { ...state.accessibilitySettings, ...settings }
+      })),
+
       // Logout
       logout: async () => {
         try {
@@ -533,7 +590,7 @@ export const useAppStore = create<AppState>()(
         } catch (e) {
           console.error('Logout error:', e);
         }
-        
+
         set({
           ...initialState,
           // Preserve persisted settings
@@ -555,7 +612,10 @@ export const useAppStore = create<AppState>()(
         archivedChats: state.archivedChats,
         adminSettings: state.adminSettings,
         chatWallpapers: state.chatWallpapers,
-        notificationSettings: state.notificationSettings
+        notificationSettings: state.notificationSettings,
+        privacySettings: state.privacySettings,
+        storageSettings: state.storageSettings,
+        accessibilitySettings: state.accessibilitySettings
       })
     }
   )

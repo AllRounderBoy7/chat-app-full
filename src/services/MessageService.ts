@@ -7,38 +7,38 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface Message {
   id: string;
-  chatId: string;
-  senderId: string;
-  receiverId: string;
+  chat_id: string;
+  sender_id: string;
+  receiver_id: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'location' | 'contact' | 'sticker';
-  status: 'pending' | 'sent' | 'delivered' | 'read';
-  createdAt: number;
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'voice' | 'location' | 'contact' | 'sticker' | 'system' | 'poll' | 'file';
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'scheduled';
+  created_at: number;
   // Common
-  replyTo?: {
+  reply_to?: {
     id: string;
     content: string;
     senderName: string;
     type: string;
   };
-  forwardedFrom?: string;
+  forwarded_from?: string;
   // Advanced
   reactions?: Record<string, string[]>; // emoji -> userIds
-  isEdited?: boolean;
-  editedAt?: number;
-  isDeleted?: boolean;
-  deletedForEveryone?: boolean;
+  is_edited?: boolean;
+  edited_at?: number;
+  is_deleted?: boolean;
+  deleted_for_everyone?: boolean;
   // Important
-  isStarred?: boolean;
-  isPinned?: boolean;
-  isScheduled?: boolean;
-  scheduledFor?: number;
-  expiresAt?: number; // For disappearing messages
+  is_starred?: boolean;
+  is_pinned?: boolean;
+  is_scheduled?: boolean;
+  scheduled_for?: number;
+  expires_at?: number; // For disappearing messages
   // Media
-  fileUrl?: string;
+  file_url?: string;
   thumbnail?: string;
-  fileName?: string;
-  fileSize?: number;
+  file_name?: string;
+  file_size?: number;
   duration?: number; // For audio/video
   // Location
   location?: {
@@ -60,9 +60,9 @@ class MessageServiceClass {
 
   // Send text message
   async sendMessage(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     content: string,
     type: Message['type'] = 'text',
     options?: Partial<Message>
@@ -70,13 +70,13 @@ class MessageServiceClass {
     const now = Date.now();
     const message: Message = {
       id: uuidv4(),
-      chatId,
-      senderId,
-      receiverId,
+      chat_id,
+      sender_id,
+      receiver_id,
       content,
       type,
       status: 'pending',
-      createdAt: now,
+      created_at: now,
       reactions: {},
       ...options,
     };
@@ -84,26 +84,26 @@ class MessageServiceClass {
     // Save to local DB (Optimistic UI)
     const dbMessage: DBMessage = {
       id: message.id,
-      chatId: message.chatId,
-      senderId: message.senderId,
-      receiverId: message.receiverId,
+      chat_id: message.chat_id,
+      sender_id: message.sender_id,
+      receiver_id: message.receiver_id,
       content: message.content,
-      iv: '', // Would be encryption IV in real implementation
+      iv: '',
       type: message.type as DBMessage['type'],
-      fileUrl: message.fileUrl,
+      file_url: message.file_url,
       thumbnail: message.thumbnail,
-      replyTo: message.replyTo ? JSON.stringify(message.replyTo) : undefined,
-      forwardedFrom: message.forwardedFrom,
+      reply_to: message.reply_to ? JSON.stringify(message.reply_to) : undefined,
+      forwarded_from: message.forwarded_from,
       status: message.status,
       reactions: message.reactions,
-      isDeleted: message.isDeleted,
-      deletedForEveryone: message.deletedForEveryone,
-      editedAt: message.editedAt,
-      expiresAt: message.expiresAt,
-      syncedToServer: false,
-      deletedFromServer: false,
-      createdAt: message.createdAt,
-      updatedAt: now,
+      is_deleted: message.is_deleted,
+      deleted_for_everyone: message.deleted_for_everyone,
+      edited_at: message.edited_at,
+      expires_at: message.expires_at,
+      synced_to_server: false,
+      deleted_from_server: false,
+      created_at: message.created_at,
+      updated_at: now,
     };
 
     await db.messages.add(dbMessage);
@@ -112,20 +112,20 @@ class MessageServiceClass {
     try {
       await supabase.from('pending_messages').insert({
         id: message.id,
-        sender_id: message.senderId,
-        receiver_id: message.receiverId,
+        sender_id: message.sender_id,
+        receiver_id: message.receiver_id,
         content: message.content,
         type: message.type,
-        reply_to: message.replyTo,
-        forwarded_from: message.forwardedFrom,
-        file_url: message.fileUrl,
+        reply_to: message.reply_to,
+        forwarded_from: message.forwarded_from,
+        file_url: message.file_url,
         thumbnail: message.thumbnail,
-        scheduled_for: message.scheduledFor ? new Date(message.scheduledFor).toISOString() : null,
-        expires_at: message.expiresAt ? new Date(message.expiresAt).toISOString() : null,
+        scheduled_for: message.scheduled_for ? new Date(message.scheduled_for).toISOString() : null,
+        expires_at: message.expires_at ? new Date(message.expires_at).toISOString() : null,
       });
 
       message.status = 'sent';
-      await updateMessage(message.id, { status: 'sent', syncedToServer: true });
+      await updateMessage(message.id, { status: 'sent', synced_to_server: true });
     } catch (error) {
       console.error('Error sending message:', error);
     }
@@ -135,17 +135,17 @@ class MessageServiceClass {
 
   // Reply to message
   async replyToMessage(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     content: string,
     replyToMessage: Message
   ): Promise<Message> {
-    return this.sendMessage(chatId, senderId, receiverId, content, 'text', {
-      replyTo: {
+    return this.sendMessage(chat_id, sender_id, receiver_id, content, 'text', {
+      reply_to: {
         id: replyToMessage.id,
         content: replyToMessage.content.substring(0, 100),
-        senderName: replyToMessage.senderId, // Would be actual name
+        senderName: replyToMessage.sender_id, // Would be actual name
         type: replyToMessage.type,
       },
     });
@@ -154,29 +154,29 @@ class MessageServiceClass {
   // Forward message
   async forwardMessage(
     message: Message,
-    newChatId: string,
-    newReceiverId: string,
-    senderId: string
+    new_chat_id: string,
+    new_receiver_id: string,
+    sender_id: string
   ): Promise<Message> {
     return this.sendMessage(
-      newChatId,
-      senderId,
-      newReceiverId,
+      new_chat_id,
+      sender_id,
+      new_receiver_id,
       message.content,
       message.type,
       {
-        fileUrl: message.fileUrl,
+        file_url: message.file_url,
         thumbnail: message.thumbnail,
         location: message.location,
         contact: message.contact,
-        forwardedFrom: message.senderId,
+        forwarded_from: message.sender_id,
       }
     );
   }
 
   // Get messages for chat
-  async getMessages(chatId: string, limit = 50, before?: number): Promise<Message[]> {
-    let query = db.messages.where('chatId').equals(chatId);
+  async getMessages(chat_id: string, limit = 50, before?: number): Promise<Message[]> {
+    let query = db.messages.where('chat_id').equals(chat_id);
 
     const messages = await query
       .reverse()
@@ -185,8 +185,8 @@ class MessageServiceClass {
 
     // Apply filters
     const filtered = messages.filter(m => {
-      if (m.isDeleted && !m.deletedForEveryone) return true; // Show for self only
-      if (before && m.createdAt >= before) return false;
+      if (m.is_deleted && !m.deleted_for_everyone) return true; // Show for self only
+      if (before && (m.created_at ?? 0) >= before) return false;
       return true;
     });
 
@@ -194,14 +194,14 @@ class MessageServiceClass {
   }
 
   // Search messages
-  async searchMessages(chatId: string, query: string): Promise<Message[]> {
+  async searchMessages(chat_id: string, query: string): Promise<Message[]> {
     const messages = await db.messages
-      .where('chatId')
-      .equals(chatId)
+      .where('chat_id')
+      .equals(chat_id)
       .toArray();
 
     const filtered = messages.filter(m =>
-      !m.isDeleted &&
+      !(m.is_deleted ?? false) &&
       m.content.toLowerCase().includes(query.toLowerCase())
     );
 
@@ -211,15 +211,15 @@ class MessageServiceClass {
   // ==================== ADVANCED FEATURES ====================
 
   // Add reaction
-  async addReaction(messageId: string, oderId: string, emoji: string): Promise<void> {
+  async addReaction(messageId: string, order_id: string, emoji: string): Promise<void> {
     const message = await db.messages.get(messageId);
     if (!message) throw new Error('Message not found');
 
     const reactions = message.reactions || {};
-    
+
     // Remove existing reaction from this user
     for (const e in reactions) {
-      const idx = reactions[e].indexOf(oderId);
+      const idx = reactions[e].indexOf(order_id);
       if (idx > -1) {
         reactions[e].splice(idx, 1);
         if (reactions[e].length === 0) delete reactions[e];
@@ -228,8 +228,8 @@ class MessageServiceClass {
 
     // Add new reaction
     if (!reactions[emoji]) reactions[emoji] = [];
-    if (!reactions[emoji].includes(oderId)) {
-      reactions[emoji].push(oderId);
+    if (!reactions[emoji].includes(order_id)) {
+      reactions[emoji].push(order_id);
     }
 
     await updateMessage(messageId, { reactions });
@@ -237,20 +237,20 @@ class MessageServiceClass {
     // Sync to server
     await supabase.from('message_reactions').upsert({
       message_id: messageId,
-      user_id: oderId,
+      user_id: order_id,
       emoji,
     });
   }
 
   // Remove reaction
-  async removeReaction(messageId: string, oderId: string): Promise<void> {
+  async removeReaction(messageId: string, order_id: string): Promise<void> {
     const message = await db.messages.get(messageId);
     if (!message) throw new Error('Message not found');
 
     const reactions = message.reactions || {};
-    
+
     for (const emoji in reactions) {
-      const idx = reactions[emoji].indexOf(oderId);
+      const idx = reactions[emoji].indexOf(order_id);
       if (idx > -1) {
         reactions[emoji].splice(idx, 1);
         if (reactions[emoji].length === 0) delete reactions[emoji];
@@ -262,25 +262,25 @@ class MessageServiceClass {
     await supabase.from('message_reactions')
       .delete()
       .eq('message_id', messageId)
-      .eq('user_id', oderId);
+      .eq('user_id', order_id);
   }
 
   // Edit message
-  async editMessage(messageId: string, oderId: string, newContent: string): Promise<void> {
+  async editMessage(messageId: string, order_id: string, newContent: string): Promise<void> {
     const message = await db.messages.get(messageId);
     if (!message) throw new Error('Message not found');
-    if (message.senderId !== oderId) throw new Error('Cannot edit others messages');
+    if (message.sender_id !== order_id) throw new Error('Cannot edit others messages');
     if (message.type !== 'text') throw new Error('Can only edit text messages');
 
     // Check if within edit window (15 minutes)
     const editWindow = 15 * 60 * 1000;
-    if (Date.now() - message.createdAt > editWindow) {
+    if (Date.now() - (message.created_at as number) > editWindow) {
       throw new Error('Edit window expired');
     }
 
     await updateMessage(messageId, {
       content: newContent,
-      editedAt: Date.now(),
+      edited_at: Date.now(),
     });
 
     await supabase.from('pending_messages')
@@ -295,20 +295,20 @@ class MessageServiceClass {
   // Delete message (for me or everyone)
   async deleteMessageAction(
     messageId: string,
-    oderId: string,
+    order_id: string,
     deleteFor: 'me' | 'everyone'
   ): Promise<void> {
     const message = await db.messages.get(messageId);
     if (!message) throw new Error('Message not found');
 
     if (deleteFor === 'everyone') {
-      if (message.senderId !== oderId) {
+      if (message.sender_id !== order_id) {
         throw new Error('Can only delete your own messages for everyone');
       }
-      
+
       // Check if within delete window (1 hour)
       const deleteWindow = 60 * 60 * 1000;
-      if (Date.now() - message.createdAt > deleteWindow) {
+      if (Date.now() - (message.created_at || 0) > deleteWindow) {
         throw new Error('Delete window expired');
       }
 
@@ -361,9 +361,9 @@ class MessageServiceClass {
 
     for (const id of starredIds) {
       const msg = await db.messages.get(id);
-      if (msg && !msg.isDeleted) {
+      if (msg && !msg.is_deleted) {
         const message = this.dbToMessage(msg);
-        message.isStarred = true;
+        message.is_starred = true;
         messages.push(message);
       }
     }
@@ -372,90 +372,89 @@ class MessageServiceClass {
   }
 
   // Pin message
-  async pinMessage(chatId: string, messageId: string): Promise<void> {
-    const pinned = this.getPinnedMessageIds(chatId);
+  async pinMessage(chat_id: string, messageId: string): Promise<void> {
+    const pinned = this.getPinnedMessageIds(chat_id);
     if (!pinned.includes(messageId) && pinned.length < 3) {
       pinned.push(messageId);
-      localStorage.setItem(`pinned_messages_${chatId}`, JSON.stringify(pinned));
+      localStorage.setItem(`pinned_messages_${chat_id}`, JSON.stringify(pinned));
     }
   }
 
   // Unpin message
-  async unpinMessage(chatId: string, messageId: string): Promise<void> {
-    const pinned = this.getPinnedMessageIds(chatId);
+  async unpinMessage(chat_id: string, messageId: string): Promise<void> {
+    const pinned = this.getPinnedMessageIds(chat_id);
     const filtered = pinned.filter(id => id !== messageId);
-    localStorage.setItem(`pinned_messages_${chatId}`, JSON.stringify(filtered));
+    localStorage.setItem(`pinned_messages_${chat_id}`, JSON.stringify(filtered));
   }
 
   // Get pinned message IDs
-  getPinnedMessageIds(chatId: string): string[] {
-    const stored = localStorage.getItem(`pinned_messages_${chatId}`);
+  getPinnedMessageIds(chat_id: string): string[] {
+    const stored = localStorage.getItem(`pinned_messages_${chat_id}`);
     return stored ? JSON.parse(stored) : [];
   }
 
   // Get pinned messages
-  async getPinnedMessages(chatId: string): Promise<Message[]> {
-    const pinnedIds = this.getPinnedMessageIds(chatId);
+  async getPinnedMessages(chat_id: string): Promise<Message[]> {
+    const pinnedIds = this.getPinnedMessageIds(chat_id);
     const messages: Message[] = [];
 
     for (const id of pinnedIds) {
       const msg = await db.messages.get(id);
-      if (msg && !msg.isDeleted) {
+      if (msg && !(msg.is_deleted ?? false)) {
         const message = this.dbToMessage(msg);
-        message.isPinned = true;
+        message.is_pinned = true;
         messages.push(message);
       }
     }
-
     return messages;
   }
 
   // Schedule message
   async scheduleMessage(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     content: string,
-    scheduledFor: number
+    scheduled_for: number
   ): Promise<Message> {
-    return this.sendMessage(chatId, senderId, receiverId, content, 'text', {
-      isScheduled: true,
-      scheduledFor,
+    return this.sendMessage(chat_id, sender_id, receiver_id, content, 'text', {
+      is_scheduled: true,
+      scheduled_for,
       status: 'pending',
     });
   }
 
   // Set disappearing messages
-  async setDisappearingMessages(chatId: string, duration: number | null): Promise<void> {
-    localStorage.setItem(`disappearing_${chatId}`, duration ? duration.toString() : '');
+  async setDisappearingMessages(chat_id: string, duration: number | null): Promise<void> {
+    localStorage.setItem(`disappearing_${chat_id}`, duration ? duration.toString() : '');
   }
 
   // Get disappearing duration
-  getDisappearingDuration(chatId: string): number | null {
-    const stored = localStorage.getItem(`disappearing_${chatId}`);
+  getDisappearingDuration(chat_id: string): number | null {
+    const stored = localStorage.getItem(`disappearing_${chat_id}`);
     return stored ? parseInt(stored) : null;
   }
 
   // Clear chat
-  async clearChat(chatId: string, deleteForEveryone = false): Promise<void> {
+  async clearChat(chat_id: string, deleteForEveryone = false): Promise<void> {
     if (deleteForEveryone) {
-      const messages = await db.messages.where('chatId').equals(chatId).toArray();
+      const messages = await db.messages.where('chat_id').equals(chat_id).toArray();
       for (const msg of messages) {
-        await deleteMessage(msg.id, true);
+        await this.deleteMessageAction(msg.id, msg.sender_id, 'everyone');
       }
     } else {
-      await db.messages.where('chatId').equals(chatId).delete();
+      await db.messages.where('chat_id').equals(chat_id).delete();
     }
   }
 
   // Export chat
-  async exportChat(chatId: string): Promise<string> {
-    const messages = await this.getMessages(chatId, 10000);
+  async exportChat(chat_id: string): Promise<string> {
+    const messages = await this.getMessages(chat_id, 10000);
     let text = '';
 
     for (const msg of messages) {
-      const date = new Date(msg.createdAt).toLocaleString();
-      const sender = msg.senderId; // Would be actual name
+      const date = new Date(msg.created_at).toLocaleString();
+      const sender = msg.sender_id; // Would be actual name
       text += `[${date}] ${sender}: ${msg.content}\n`;
     }
 
@@ -481,19 +480,31 @@ class MessageServiceClass {
   }
 
   // Mark as read
-  async markAsRead(chatId: string, oderId: string): Promise<void> {
+  async markAsRead(chat_id: string, order_id: string): Promise<void> {
     const messages = await db.messages
-      .where('chatId')
-      .equals(chatId)
-      .and(m => m.receiverId === oderId && m.status !== 'read')
+      .where('chat_id')
+      .equals(chat_id)
+      .filter(m => m.sender_id !== order_id && m.status !== 'read')
       .toArray();
 
     for (const msg of messages) {
       await updateMessage(msg.id, { status: 'read' });
     }
 
-    // Notify sender
+    // Sync to server
+    await supabase.from('pending_messages')
+      .update({ status: 'read' })
+      .eq('chat_id', chat_id)
+      .neq('sender_id', order_id);
+
+    // If messages were marked as read, delete them from pending_messages and insert receipts
     if (messages.length > 0) {
+      // 1. Delete from pending_messages Table (Supabase)
+      await supabase.from('pending_messages')
+        .delete()
+        .in('id', messages.map(m => m.id));
+
+      // 2. Insert receipt (transient)
       await supabase.from('delivery_receipts').insert(
         messages.map(m => ({
           id: uuidv4(),
@@ -508,9 +519,9 @@ class MessageServiceClass {
 
   // Send voice message
   async sendVoiceMessage(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     audioBlob: Blob,
     duration: number
   ): Promise<Message> {
@@ -518,43 +529,43 @@ class MessageServiceClass {
     const fileName = `voice_${Date.now()}.webm`;
     const { data: uploadData } = await supabase.storage
       .from('media')
-      .upload(`voice/${senderId}/${fileName}`, audioBlob);
+      .upload(`voice/${sender_id}/${fileName}`, audioBlob);
 
-    const fileUrl = uploadData?.path 
+    const fileUrl = uploadData?.path
       ? supabase.storage.from('media').getPublicUrl(uploadData.path).data.publicUrl
       : '';
 
-    return this.sendMessage(chatId, senderId, receiverId, '🎤 Voice message', 'voice', {
-      fileUrl,
+    return this.sendMessage(chat_id, sender_id, receiver_id, '🎤 Voice message', 'voice', {
+      file_url: fileUrl,
       duration,
     });
   }
 
   // Send location
   async sendLocation(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     latitude: number,
     longitude: number,
     name?: string,
     address?: string
   ): Promise<Message> {
-    return this.sendMessage(chatId, senderId, receiverId, '📍 Location', 'location', {
+    return this.sendMessage(chat_id, sender_id, receiver_id, '📍 Location', 'location', {
       location: { latitude, longitude, name, address },
     });
   }
 
   // Send contact
   async sendContact(
-    chatId: string,
-    senderId: string,
-    receiverId: string,
+    chat_id: string,
+    sender_id: string,
+    receiver_id: string,
     contactName: string,
     contactPhone: string,
     contactEmail?: string
   ): Promise<Message> {
-    return this.sendMessage(chatId, senderId, receiverId, `👤 ${contactName}`, 'contact', {
+    return this.sendMessage(chat_id, sender_id, receiver_id, `👤 ${contactName}`, 'contact', {
       contact: { name: contactName, phone: contactPhone, email: contactEmail },
     });
   }
@@ -564,24 +575,58 @@ class MessageServiceClass {
   private dbToMessage(dbMsg: DBMessage): Message {
     return {
       id: dbMsg.id,
-      chatId: dbMsg.chatId,
-      senderId: dbMsg.senderId,
-      receiverId: dbMsg.receiverId,
+      chat_id: dbMsg.chat_id,
+      sender_id: dbMsg.sender_id,
+      receiver_id: dbMsg.receiver_id || '',
       content: dbMsg.content,
       type: dbMsg.type,
       status: dbMsg.status,
-      createdAt: dbMsg.createdAt,
-      replyTo: dbMsg.replyTo ? JSON.parse(dbMsg.replyTo) : undefined,
-      forwardedFrom: dbMsg.forwardedFrom,
+      created_at: dbMsg.created_at || Date.now(),
+      reply_to: dbMsg.reply_to ? JSON.parse(dbMsg.reply_to) : undefined,
+      forwarded_from: dbMsg.forwarded_from,
       reactions: dbMsg.reactions,
-      isEdited: !!dbMsg.editedAt,
-      editedAt: dbMsg.editedAt,
-      isDeleted: dbMsg.isDeleted,
-      deletedForEveryone: dbMsg.deletedForEveryone,
-      fileUrl: dbMsg.fileUrl,
+      is_edited: !!dbMsg.edited_at,
+      edited_at: dbMsg.edited_at,
+      is_deleted: dbMsg.is_deleted,
+      deleted_for_everyone: dbMsg.deleted_for_everyone,
+      file_url: dbMsg.file_url,
       thumbnail: dbMsg.thumbnail,
-      expiresAt: dbMsg.expiresAt,
+      expires_at: dbMsg.expires_at,
     };
+  }
+
+  // ==================== STORAGE OPTIMIZATION ====================
+
+  // Auto-cleanup media from Supabase Storage to stay under 0.5GB limit
+  async cleanupServerStorage(): Promise<void> {
+    try {
+      // 1. Delete expired stories media (handled in StoryService, but we can double check)
+
+      // 2. Delete delivered/old message media from server (keep local copy only)
+      const { data: oldMedia } = await supabase
+        .from('pending_messages')
+        .select('id, file_url')
+        .not('file_url', 'is', null)
+        .lt('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // 24h old
+
+      if (oldMedia && oldMedia.length > 0) {
+        for (const item of oldMedia) {
+          if (item.file_url) {
+            // Extract path from URL
+            const url = new URL(item.file_url);
+            const path = url.pathname.split('/storage/v1/object/public/media/')[1];
+            if (path) {
+              await supabase.storage.from('media').remove([path]);
+              // Clear URL from DB to save space and mark as "Server Cleared"
+              await supabase.from('pending_messages').update({ file_url: null }).eq('id', item.id);
+            }
+          }
+        }
+        console.log(`🧹 Storage Cleanup: Removed ${oldMedia.length} old media files from server.`);
+      }
+    } catch (error) {
+      console.error('Storage cleanup failed:', error);
+    }
   }
 }
 

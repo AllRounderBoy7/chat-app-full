@@ -3,32 +3,34 @@ import { supabase, STUN_SERVERS, getMeteredTurnServers } from '../lib/supabase';
 
 // Types
 interface CallConfig {
-  stunEnabled: boolean;
-  turnEnabled: boolean;
-  videoQuality: 'SD' | 'HD' | 'FHD';
-  audioQuality: 'LOW' | 'MEDIUM' | 'HIGH';
+  stun_enabled: boolean;
+  turn_enabled: boolean;
+  video_quality: 'SD' | 'HD' | 'FHD';
+  audio_quality: 'LOW' | 'MEDIUM' | 'HIGH';
 }
 
 interface CallState {
-  isInCall: boolean;
-  callId: string | null;
-  callType: 'voice' | 'video';
-  isMuted: boolean;
-  isVideoOff: boolean;
-  isSpeakerOn: boolean;
-  callDuration: number;
-  connectionState: 'connecting' | 'connected' | 'disconnected' | 'failed';
-  iceConnectionState: string;
-  usedStun: boolean;
-  usedTurn: boolean;
+  is_in_call: boolean;
+  call_id: string | null;
+  call_type: 'voice' | 'video';
+  is_muted: boolean;
+  is_video_off: boolean;
+  is_speaker_on: boolean;
+  call_duration: number;
+  connection_state: 'connecting' | 'connected' | 'disconnected' | 'failed';
+  ice_connection_state: string;
+  used_stun: boolean;
+  used_turn: boolean;
+  peer_id: string | null;
+  remote_video_off: boolean;
 }
 
 interface IncomingCall {
-  callId: string;
-  callerId: string;
-  callerName: string;
-  callerAvatar?: string;
-  callType: 'voice' | 'video';
+  call_id: string;
+  caller_id: string;
+  caller_name: string;
+  caller_avatar?: string;
+  call_type: 'voice' | 'video';
   offer: RTCSessionDescriptionInit;
 }
 
@@ -62,24 +64,26 @@ class WebRTCService {
 
   constructor() {
     this.callState = {
-      isInCall: false,
-      callId: null,
-      callType: 'voice',
-      isMuted: false,
-      isVideoOff: false,
-      isSpeakerOn: false,
-      callDuration: 0,
-      connectionState: 'disconnected',
-      iceConnectionState: 'new',
-      usedStun: false,
-      usedTurn: false
+      is_in_call: false,
+      call_id: null,
+      call_type: 'voice',
+      is_muted: false,
+      is_video_off: false,
+      is_speaker_on: false,
+      call_duration: 0,
+      connection_state: 'disconnected',
+      ice_connection_state: 'new',
+      used_stun: false,
+      used_turn: false,
+      peer_id: null,
+      remote_video_off: false
     };
 
     this.config = {
-      stunEnabled: true,
-      turnEnabled: true,
-      videoQuality: 'HD',
-      audioQuality: 'HIGH'
+      stun_enabled: true,
+      turn_enabled: true,
+      video_quality: 'FHD', // Default to 1080p 60fps
+      audio_quality: 'HIGH'
     };
   }
 
@@ -87,6 +91,15 @@ class WebRTCService {
   async initialize(userId: string): Promise<void> {
     this.currentUserId = userId;
     await this.setupSignalingListener();
+  }
+
+  setVideoQuality(quality: 'SD' | 'HD' | 'FHD'): void {
+    this.config.videoQuality = quality;
+    console.log(`Video quality set to: ${quality}`);
+  }
+
+  getCallConfig(): CallConfig {
+    return this.config;
   }
 
   // Setup signaling listener for incoming calls
@@ -102,19 +115,19 @@ class WebRTCService {
     this.signalingSubscription = supabase
       .channel(`calls:${this.currentUserId}`)
       .on('broadcast', { event: 'incoming-call' }, async (payload) => {
-        const { callId, callerId, callerName, callerAvatar, callType, offer } = payload.payload;
-        
+        const { call_id, caller_id, caller_name, caller_avatar, call_type, offer } = payload.payload;
+
         // Play ringtone
-        this.playRingtone(callType);
+        this.playRingtone(call_type);
 
         // Notify UI
         if (this.onIncomingCall) {
           this.onIncomingCall({
-            callId,
-            callerId,
-            callerName,
-            callerAvatar,
-            callType,
+            call_id,
+            caller_id,
+            caller_name,
+            caller_avatar,
+            call_type,
             offer
           });
         }
@@ -134,6 +147,10 @@ class WebRTCService {
       .on('broadcast', { event: 'call-ended' }, () => {
         this.endCall();
       })
+      .on('broadcast', { event: 'video-toggle' }, (payload) => {
+        this.callState.remote_video_off = payload.payload.is_video_off;
+        this.notifyStateChange();
+      })
       .subscribe();
   }
 
@@ -142,12 +159,12 @@ class WebRTCService {
     const iceServers: RTCIceServer[] = [];
 
     // Add STUN servers if enabled
-    if (this.config.stunEnabled) {
+    if (this.config.stun_enabled) {
       iceServers.push(...STUN_SERVERS);
     }
 
     // Add TURN servers if enabled (Metered as primary)
-    if (this.config.turnEnabled) {
+    if (this.config.turn_enabled) {
       try {
         const meteredServers = await getMeteredTurnServers();
         iceServers.push(...meteredServers);
@@ -165,7 +182,7 @@ class WebRTCService {
 
     const config: RTCConfiguration = {
       iceServers,
-      iceTransportPolicy: this.config.turnEnabled ? 'all' : 'relay',
+      iceTransportPolicy: (this.config.turn_enabled && this.config.stun_enabled) ? 'all' : (this.config.turn_enabled ? 'relay' : 'all'),
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
       iceCandidatePoolSize: 10
@@ -175,16 +192,16 @@ class WebRTCService {
 
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate && this.callState.callId) {
+      if (event.candidate && this.callState.call_id) {
         // Send ICE candidate to peer
         this.sendSignal('ice-candidate', { candidate: event.candidate });
 
         // Track STUN/TURN usage
         const candidateStr = event.candidate.candidate.toLowerCase();
         if (candidateStr.includes('relay')) {
-          this.callState.usedTurn = true;
+          this.callState.used_turn = true;
         } else if (candidateStr.includes('srflx') || candidateStr.includes('prflx')) {
-          this.callState.usedStun = true;
+          this.callState.used_stun = true;
         }
         this.notifyStateChange();
       }
@@ -192,7 +209,7 @@ class WebRTCService {
 
     // Handle connection state changes
     pc.onconnectionstatechange = () => {
-      this.callState.connectionState = pc.connectionState as any;
+      this.callState.connection_state = pc.connectionState as any;
       this.notifyStateChange();
 
       if (pc.connectionState === 'connected') {
@@ -205,7 +222,7 @@ class WebRTCService {
 
     // Handle ICE connection state
     pc.oniceconnectionstatechange = () => {
-      this.callState.iceConnectionState = pc.iceConnectionState;
+      this.callState.ice_connection_state = pc.iceConnectionState;
       this.notifyStateChange();
     };
 
@@ -222,17 +239,20 @@ class WebRTCService {
     return pc;
   }
 
-  // Start outgoing call
-  async startCall(
-    receiverId: string,
-    receiverName: string,
-    callType: 'voice' | 'video'
-  ): Promise<boolean> {
+  // Initiate call
+  async startCall(receiver_id: string, receiver_name: string, call_type: 'voice' | 'video'): Promise<boolean> {
+    if (this.callState.is_in_call) return false;
     try {
       // Get local media stream
+      // High quality constraints for STUN-based calls
       const constraints: MediaStreamConstraints = {
-        audio: AUDIO_CONSTRAINTS[this.config.audioQuality],
-        video: callType === 'video' ? VIDEO_CONSTRAINTS[this.config.videoQuality] : false
+        audio: AUDIO_CONSTRAINTS[this.config.audio_quality],
+        video: call_type === 'video' ? {
+          ...VIDEO_CONSTRAINTS[this.config.video_quality],
+          // Add advanced constraints for better quality on good connections
+          facingMode: 'user',
+          aspectRatio: 1.7777777778 // 16:9
+        } : false
       };
 
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -248,39 +268,40 @@ class WebRTCService {
       // Create offer with optimized codecs
       const offerOptions: RTCOfferOptions = {
         offerToReceiveAudio: true,
-        offerToReceiveVideo: callType === 'video'
+        offerToReceiveVideo: call_type === 'video'
       };
 
       const offer = await this.peerConnection.createOffer(offerOptions);
-      
+
       // Optimize SDP for better quality
       const optimizedOffer = this.optimizeSDP(offer);
       await this.peerConnection.setLocalDescription(optimizedOffer);
 
-      // Generate call ID
+      // Use existing call ID or generate a new one
       const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Update state
       this.callState = {
         ...this.callState,
-        isInCall: true,
-        callId,
-        callType,
-        connectionState: 'connecting',
-        usedStun: false,
-        usedTurn: false
+        is_in_call: true,
+        call_id: callId,
+        call_type: call_type,
+        connection_state: 'connecting',
+        used_stun: false,
+        used_turn: false,
+        peer_id: receiver_id
       };
       this.notifyStateChange();
 
-      // Send offer to receiver via Supabase channel
-      await supabase.channel(`calls:${receiverId}`).send({
+      // Send offer to receiver via signaling
+      await supabase.channel(`calls:${receiver_id}`).send({
         type: 'broadcast',
         event: 'incoming-call',
         payload: {
-          callId,
-          callerId: this.currentUserId,
-          callerName: receiverName,
-          callType,
+          call_id: callId,
+          caller_id: this.currentUserId,
+          caller_name: receiver_name,
+          call_type: call_type,
           offer: this.peerConnection.localDescription
         }
       });
@@ -289,7 +310,7 @@ class WebRTCService {
       this.playRingbackTone();
 
       // Log call attempt
-      await this.logCall(callId, receiverId, callType, 'outgoing');
+      await this.logCall(callId, receiver_id, call_type, 'outgoing');
 
       return true;
     } catch (error) {
@@ -306,8 +327,8 @@ class WebRTCService {
 
       // Get local media stream
       const constraints: MediaStreamConstraints = {
-        audio: AUDIO_CONSTRAINTS[this.config.audioQuality],
-        video: incomingCall.callType === 'video' ? VIDEO_CONSTRAINTS[this.config.videoQuality] : false
+        audio: AUDIO_CONSTRAINTS[this.config.audio_quality],
+        video: incomingCall.call_type === 'video' ? VIDEO_CONSTRAINTS[this.config.video_quality] : false
       };
 
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -331,15 +352,15 @@ class WebRTCService {
       // Update state
       this.callState = {
         ...this.callState,
-        isInCall: true,
-        callId: incomingCall.callId,
-        callType: incomingCall.callType,
-        connectionState: 'connecting'
+        is_in_call: true,
+        call_type: incomingCall.call_type,
+        connection_state: 'connecting',
+        peer_id: incomingCall.caller_id
       };
       this.notifyStateChange();
 
       // Send answer back to caller
-      await supabase.channel(`calls:${incomingCall.callerId}`).send({
+      await supabase.channel(`calls:${incomingCall.caller_id}`).send({
         type: 'broadcast',
         event: 'call-answer',
         payload: {
@@ -348,7 +369,7 @@ class WebRTCService {
       });
 
       // Log call
-      await this.logCall(incomingCall.callId, incomingCall.callerId, incomingCall.callType, 'incoming');
+      await this.logCall(incomingCall.call_id, incomingCall.caller_id, incomingCall.call_type, 'incoming');
 
       return true;
     } catch (error) {
@@ -361,9 +382,9 @@ class WebRTCService {
   // Decline incoming call
   async declineCall(incomingCall: IncomingCall): Promise<void> {
     this.stopRingtone();
-    
+
     // Notify caller
-    await supabase.channel(`calls:${incomingCall.callerId}`).send({
+    await supabase.channel(`calls:${incomingCall.caller_id}`).send({
       type: 'broadcast',
       event: 'call-ended',
       payload: { reason: 'declined' }
@@ -391,23 +412,25 @@ class WebRTCService {
     this.stopRingtone();
 
     // Notify peer
-    if (this.callState.callId) {
+    if (this.callState.call_id) {
       this.sendSignal('call-ended', { reason: 'ended' });
     }
 
     // Reset state
     this.callState = {
-      isInCall: false,
-      callId: null,
-      callType: 'voice',
-      isMuted: false,
-      isVideoOff: false,
-      isSpeakerOn: false,
-      callDuration: 0,
-      connectionState: 'disconnected',
-      iceConnectionState: 'new',
-      usedStun: false,
-      usedTurn: false
+      is_in_call: false,
+      call_id: null,
+      call_type: 'voice',
+      is_muted: false,
+      is_video_off: false,
+      is_speaker_on: false,
+      call_duration: 0,
+      connection_state: 'disconnected',
+      ice_connection_state: 'new',
+      used_stun: false,
+      used_turn: false,
+      peer_id: null,
+      remote_video_off: false
     };
     this.notifyStateChange();
   }
@@ -418,7 +441,7 @@ class WebRTCService {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        this.callState.isMuted = !audioTrack.enabled;
+        this.callState.is_muted = !audioTrack.enabled;
         this.notifyStateChange();
       }
     }
@@ -430,21 +453,24 @@ class WebRTCService {
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
-        this.callState.isVideoOff = !videoTrack.enabled;
+        this.callState.is_video_off = !videoTrack.enabled;
         this.notifyStateChange();
+
+        // Notify peer about video status change
+        this.sendSignal('video-toggle', { is_video_off: this.callState.is_video_off });
       }
     }
   }
 
   // Toggle speaker
   toggleSpeaker(): void {
-    this.callState.isSpeakerOn = !this.callState.isSpeakerOn;
+    this.callState.is_speaker_on = !this.callState.is_speaker_on;
     this.notifyStateChange();
   }
 
   // Switch camera (front/back)
   async switchCamera(): Promise<void> {
-    if (!this.localStream || this.callState.callType !== 'video') return;
+    if (!this.localStream || this.callState.call_type !== 'video') return;
 
     const videoTrack = this.localStream.getVideoTracks()[0];
     if (!videoTrack) return;
@@ -458,7 +484,7 @@ class WebRTCService {
       // Get new stream with switched camera
       const newStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          ...VIDEO_CONSTRAINTS[this.config.videoQuality],
+          ...VIDEO_CONSTRAINTS[this.config.video_quality],
           facingMode: newFacingMode
         }
       });
@@ -512,37 +538,66 @@ class WebRTCService {
       return `m=video ${port} UDP/TLS/RTP/SAVPF ${codecList.join(' ')}`;
     });
 
+    // QUALITY FIX: Apply specific bitrates for High/Medium/Low
+    let maxBitrate = 500; // Low
+    if (this.config.video_quality === 'FHD') maxBitrate = 6000; // High
+    else if (this.config.video_quality === 'HD') maxBitrate = 1500; // Medium
+
+    sdp = sdp.replace(/b=AS:(\d+)/g, `b=AS:${maxBitrate}`);
+    if (!sdp.includes('b=AS:')) {
+      sdp = sdp.replace(/a=mid:video\r\n/g, `a=mid:video\r\nb=AS:${maxBitrate}\r\n`);
+    }
+
+    if (this.config.video_quality === 'FHD') {
+      // Also prioritize higher frame rates in SDP
+      sdp = sdp.replace(/a=fmtp:(\d+) (.*)/g, (match, pt) => {
+        if (sdp.includes(`m=video`) && pt === '98') { // VP9
+          return `${match}; x-google-max-bitrate=6000; x-google-min-bitrate=2000; x-google-start-bitrate=4000`;
+        }
+        return match;
+      });
+    }
+
     return { ...description, sdp };
   }
 
   // Handle connection failure with TURN fallback
   private async handleConnectionFailure(): Promise<void> {
-    if (this.callState.connectionState === 'failed' && !this.callState.usedTurn && this.config.turnEnabled) {
+    if (this.callState.connection_state === 'failed' && !this.callState.used_turn && this.config.turn_enabled) {
       console.log('Connection failed, attempting TURN fallback...');
       // Could implement automatic reconnection with TURN-only policy here
     }
   }
 
   // Send signaling message
-  private async sendSignal(_event: string, _payload: unknown): Promise<void> {
-    // This would be sent to the appropriate channel based on callId
-    // Implementation depends on your signaling architecture
+  private async sendSignal(event: string, payload: any): Promise<void> {
+    if (!this.callState.peer_id) return;
+
+    try {
+      await supabase.channel(`calls:${this.callState.peer_id}`).send({
+        type: 'broadcast',
+        event,
+        payload
+      });
+    } catch (error) {
+      console.error(`Failed to send signal ${event}:`, error);
+    }
   }
 
   // Play ringtone
   private playRingtone(callType: 'voice' | 'video'): void {
     try {
-      const ringtonePath = callType === 'video' 
-        ? '/sounds/video_ringtone.mp3' 
+      const ringtonePath = callType === 'video'
+        ? '/sounds/video_ringtone.mp3'
         : '/sounds/voice_ringtone.mp3';
-      
+
       this.ringtoneAudio = new Audio(ringtonePath);
       this.ringtoneAudio.loop = true;
       this.ringtoneAudio.volume = 1;
       this.ringtoneAudio.play().catch(() => {
         // Fallback to default sound if custom not found
         this.ringtoneAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQkhfKrt7Y9NETaN4u3fhz0ZUrG61pNdKSt/tNvDolEWN5nQ5qpyIxhbqdzNr3QiBUum4d2tdykNW7jn0plTGh1ytuDHnWIiLH+w4tOrYiAhf7bn1JpSGBlwteDElmoiLIOv3dKrYyUgebTh16ZkHyB6s+TVp2cjI3q039imZCMcdrjk0qNnIR97suDXpmMfIXy24NWmZSEhfLjg1aRlISF7tuDVpmUhIXy54NWmZSEhfLng1aVlISF8ueHVpWYiIXy64tSkZSIhfbri1KRmIiF9uuLUpWYiIX274tSkZiIhfbvi1KRmIiB9vOLUpGYiIH284tSkZiIgfbzi1KRmIiB9vOLUpGciIH284dSkZyIgfb3h1KRnIiB9veHUpGciIH294dSkZyMgfb3h1KRnIyB9vt/UpGcjIH2+39SkZyMgfb7f1KRnIyB9vt/UpGcjIH6+39SkZyMgfr7f1KRnIyB+vt/UpGcjIH6+39SkZyMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/U');
-        this.ringtoneAudio?.play().catch(() => {});
+        this.ringtoneAudio?.play().catch(() => { });
       });
     } catch (error) {
       console.error('Failed to play ringtone:', error);
@@ -555,7 +610,7 @@ class WebRTCService {
       this.ringtoneAudio = new Audio('/sounds/ringback.mp3');
       this.ringtoneAudio.loop = true;
       this.ringtoneAudio.volume = 0.5;
-      this.ringtoneAudio.play().catch(() => {});
+      this.ringtoneAudio.play().catch(() => { });
     } catch (error) {
       console.error('Failed to play ringback tone:', error);
     }
@@ -573,7 +628,7 @@ class WebRTCService {
   // Start call duration timer
   private startCallTimer(): void {
     this.callTimer = setInterval(() => {
-      this.callState.callDuration++;
+      this.callState.call_duration++;
       this.notifyStateChange();
     }, 1000);
   }
@@ -586,24 +641,20 @@ class WebRTCService {
     }
   }
 
-  // Log call to database
-  private async logCall(
-    callId: string,
-    peerId: string,
-    callType: 'voice' | 'video',
-    direction: 'incoming' | 'outgoing'
-  ): Promise<void> {
+  // Log call to Supabase
+  private async logCall(call_id: string, peer_id: string, call_type: 'voice' | 'video', direction: 'incoming' | 'outgoing'): Promise<void> {
     try {
       await supabase.from('call_logs').insert({
-        id: callId,
-        caller_id: direction === 'outgoing' ? this.currentUserId : peerId,
-        receiver_id: direction === 'outgoing' ? peerId : this.currentUserId,
-        call_type: callType,
-        status: 'initiated',
-        started_at: new Date().toISOString()
+        call_id,
+        user_id: this.currentUserId,
+        peer_id,
+        call_type,
+        direction,
+        status: 'completed', // Default until updated
+        created_at: new Date().toISOString()
       });
     } catch (error) {
-      console.error('Failed to log call:', error);
+      console.error('Error logging call:', error);
     }
   }
 
@@ -642,9 +693,13 @@ class WebRTCService {
     return { ...this.callState };
   }
 
-  // Update config
-  updateConfig(config: Partial<CallConfig>): void {
-    this.config = { ...this.config, ...config };
+  // Update call config
+  updateConfig(newConfig: Partial<CallConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+    // QUALITY FIX: Propagate video quality changes by restarting ICE
+    if (newConfig.video_quality && this.peerConnection) {
+      this.peerConnection.createOffer({ iceRestart: true });
+    }
   }
 
   // Get call statistics
