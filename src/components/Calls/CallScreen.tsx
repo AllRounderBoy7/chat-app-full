@@ -19,9 +19,9 @@ export function CallScreen() {
     // Set up WebRTC Service listeners
     webRTCService.setOnStateChange((state) => {
       setLocalCallState(state);
-      setCallDuration(state.callDuration);
+      setCallDuration(state.call_duration);
 
-      if (state.connectionState === 'failed' || state.connectionState === 'disconnected') {
+      if (state.connection_state === 'failed' || state.connection_state === 'disconnected') {
         handleEndCall();
       }
     });
@@ -33,13 +33,12 @@ export function CallScreen() {
     });
 
     // Handle initialization
-    if (!activeCall.isIncoming && !localCallState.isInCall) {
+    if (!activeCall.isIncoming && !localCallState.is_in_call) {
       // Outgoing call
       webRTCService.startCall(
         activeCall.remoteUser.id,
         activeCall.remoteUser.display_name,
-        activeCall.type,
-        activeCall.id
+        activeCall.type
       );
     }
 
@@ -63,10 +62,11 @@ export function CallScreen() {
   const handleAnswer = async () => {
     if (activeCall?.isIncoming && activeCall.incomingOffer) {
       await webRTCService.answerCall({
-        callId: activeCall.id,
-        callerId: activeCall.remoteUser.id,
-        callerName: activeCall.remoteUser.display_name,
-        callType: activeCall.type,
+        call_id: activeCall.id,
+        caller_id: activeCall.remoteUser.id,
+        caller_name: activeCall.remoteUser.display_name,
+        caller_avatar: activeCall.remoteUser.avatar_url,
+        call_type: activeCall.type,
         offer: activeCall.incomingOffer
       });
     }
@@ -75,10 +75,11 @@ export function CallScreen() {
   const handleDecline = async () => {
     if (activeCall?.isIncoming && activeCall.incomingOffer) {
       await webRTCService.declineCall({
-        callId: activeCall.id,
-        callerId: activeCall.remoteUser.id,
-        callerName: activeCall.remoteUser.display_name,
-        callType: activeCall.type,
+        call_id: activeCall.id,
+        caller_id: activeCall.remoteUser.id,
+        caller_name: activeCall.remoteUser.display_name,
+        caller_avatar: activeCall.remoteUser.avatar_url,
+        call_type: activeCall.type,
         offer: activeCall.incomingOffer
       });
     }
@@ -86,7 +87,7 @@ export function CallScreen() {
   };
 
   const handleEndCall = () => {
-    const duration = webRTCService.getCallState().callDuration;
+    const duration = webRTCService.getCallState().call_duration;
 
     // Log the call
     if (activeCall && profile) {
@@ -120,8 +121,8 @@ export function CallScreen() {
   if (!activeCall) return null;
 
   const remoteUser = activeCall.remoteUser;
-  const isConnected = localCallState.connectionState === 'connected';
-  const isIncomingPending = activeCall.isIncoming && localCallState.connectionState === 'disconnected' && !localCallState.isInCall;
+  const isConnected = localCallState.connection_state === 'connected';
+  const isIncomingPending = activeCall.isIncoming && localCallState.connection_state === 'disconnected' && !localCallState.is_in_call;
 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 z-50 flex flex-col">
@@ -136,10 +137,10 @@ export function CallScreen() {
               playsInline
               className={cn(
                 "w-full h-full object-cover",
-                localCallState.remoteVideoOff && "hidden"
+                localCallState.remote_video_off && "hidden"
               )}
             />
-            {localCallState.remoteVideoOff && (
+            {localCallState.remote_video_off && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40 backdrop-blur-3xl">
                 <div className="relative">
                   <div className="absolute inset-0 rounded-full bg-white/20 animate-pulse scale-110" />
@@ -164,10 +165,10 @@ export function CallScreen() {
               muted
               className={cn(
                 'w-full h-full object-cover mirror',
-                localCallState.isVideoOff && 'hidden'
+                localCallState.is_video_off && 'hidden'
               )}
             />
-            {localCallState.isVideoOff && (
+            {localCallState.is_video_off && (
               <div className="w-full h-full bg-slate-800 flex items-center justify-center">
                 <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
                   <VideoOff className="w-6 h-6 text-white/50" />
@@ -231,15 +232,15 @@ export function CallScreen() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => {
-                const nextQ = localCallState.connectionState === 'connected' ?
-                  (webRTCService.getCallConfig().videoQuality === 'SD' ? 'HD' : webRTCService.getCallConfig().videoQuality === 'HD' ? 'FHD' : 'SD')
+                const nextQ = localCallState.connection_state === 'connected' ?
+                  (webRTCService.getCallConfig().video_quality === 'SD' ? 'HD' : webRTCService.getCallConfig().video_quality === 'HD' ? 'FHD' : 'SD')
                   : 'FHD';
                 webRTCService.setVideoQuality(nextQ as any);
                 vibrate(20);
               }}
               className="px-3 py-1 rounded-lg bg-white/10 backdrop-blur-md text-[10px] font-bold text-white border border-white/20 active:scale-90"
             >
-              {webRTCService.getCallConfig().videoQuality} MODE
+              {webRTCService.getCallConfig().video_quality} MODE
             </button>
             <div>
               <h2 className="text-white font-bold text-lg">{remoteUser.display_name}</h2>
@@ -290,12 +291,12 @@ export function CallScreen() {
               onClick={() => { vibrate(10); webRTCService.toggleMute(); }}
               className={cn(
                 'w-16 h-16 rounded-full flex flex-col items-center justify-center transition-all active:scale-90 relative overflow-hidden',
-                localCallState.isMuted
+                localCallState.is_muted
                   ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 ring-4 ring-red-500/20'
                   : 'bg-white/10 backdrop-blur-xl text-white hover:bg-white/20 border border-white/20'
               )}
             >
-              {localCallState.isMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+              {localCallState.is_muted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
               <span className="text-[10px] font-bold mt-1 opacity-60">Mute</span>
             </button>
 
@@ -314,12 +315,12 @@ export function CallScreen() {
                   onClick={() => { vibrate(10); webRTCService.toggleVideo(); }}
                   className={cn(
                     'w-16 h-16 rounded-full flex flex-col items-center justify-center transition-all active:scale-90',
-                    localCallState.isVideoOff
+                    localCallState.is_video_off
                       ? 'bg-red-500 text-white shadow-lg shadow-red-500/40 ring-4 ring-red-500/20'
                       : 'bg-white/10 backdrop-blur-xl text-white hover:bg-white/20 border border-white/20'
                   )}
                 >
-                  {localCallState.isVideoOff ? <VideoOff className="w-7 h-7" /> : <Video className="w-7 h-7" />}
+                  {localCallState.is_video_off ? <VideoOff className="w-7 h-7" /> : <Video className="w-7 h-7" />}
                   <span className="text-[10px] font-bold mt-1 opacity-60">Camera</span>
                 </button>
 

@@ -7,6 +7,7 @@ import {
 import { useAppStore, type Chat, type Message } from '@/store/appStore';
 import { encryptMessage, decryptMessage, getLocalEncryptionKey } from '@/lib/encryption';
 import { processAndStoreMedia, saveToDevice } from '@/lib/mediaStorage';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/utils/cn';
 
 interface ChatViewProps {
@@ -232,7 +233,7 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
     updateMessage(chat.id, messageId, {
       reactions: {
         ...(chatMessages.find(m => m.id === messageId)?.reactions || {}),
-        [profile?.id || '']: emoji
+        [profile?.id || '']: [emoji]
       }
     });
 
@@ -259,7 +260,22 @@ export function ChatView({ chat, onBack, onCall, onOpenMenu }: ChatViewProps) {
       try {
         const response = await fetch(message.file_url);
         const blob = await response.blob();
-        await saveToDevice(blob, `ourdm_${message.type}_${Date.now()}.${message.type === 'image' ? 'jpg' : message.type === 'video' ? 'mp4' : 'file'}`);
+        const ok = await saveToDevice(blob, `ourdm_${message.type}_${Date.now()}.${message.type === 'image' ? 'jpg' : message.type === 'video' ? 'mp4' : 'file'}`);
+
+        // Transport-only: if this file came from Supabase public storage, delete it after successful local save
+        if (ok) {
+          try {
+            const marker = '/storage/v1/object/public/chat-media/';
+            if (message.file_url.includes(marker)) {
+              const path = message.file_url.split(marker)[1];
+              if (path) {
+                await supabase.storage.from('chat-media').remove([path]);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to delete remote media after save:', e);
+          }
+        }
       } catch (error) {
         console.error('Download failed:', error);
       }

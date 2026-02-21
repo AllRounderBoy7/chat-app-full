@@ -3,7 +3,7 @@ import { useProgress, useScenarioProgress } from '@/hooks/useProgress';
 
 // Example 1: Basic Usage
 export function BasicLoadingExample() {
-  const { progress, isLoading, message, start, complete, reset } = useProgress();
+  const { progress, isLoading, message, start, complete } = useProgress();
 
   const handleStart = () => {
     start('Loading your data...');
@@ -25,7 +25,7 @@ export function BasicLoadingExample() {
 
 // Example 2: Manual Progress Control
 export function ManualProgressExample() {
-  const { progress, isLoading, message, updateProgress, start, complete, reset } = useProgress({
+  const { progress, isLoading, message, updateProgress, start, complete } = useProgress({
     autoIncrement: false,
   });
 
@@ -81,7 +81,7 @@ export function ScenarioLoadingExample() {
 
 // Example 4: Multiple Steps Loading
 export function MultiStepLoadingExample() {
-  const { progress, isLoading, message, updateProgress, start, complete, reset } = useProgress({
+  const { progress, isLoading, message, updateProgress, start, complete } = useProgress({
     autoIncrement: false,
   });
 
@@ -115,7 +115,7 @@ export function MultiStepLoadingExample() {
       
     } catch (error) {
       console.error('Loading failed:', error);
-      reset();
+      complete();
     }
   };
 

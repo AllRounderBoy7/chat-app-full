@@ -94,7 +94,7 @@ class WebRTCService {
   }
 
   setVideoQuality(quality: 'SD' | 'HD' | 'FHD'): void {
-    this.config.videoQuality = quality;
+    this.config.video_quality = quality;
     console.log(`Video quality set to: ${quality}`);
   }
 
@@ -588,15 +588,15 @@ class WebRTCService {
   private playRingtone(callType: 'voice' | 'video'): void {
     try {
       const ringtonePath = callType === 'video'
-        ? '/sounds/video_ringtone.mp3'
-        : '/sounds/voice_ringtone.mp3';
+        ? '/sound/video_call.mp3'
+        : '/sound/ringtone.mp3';
 
       this.ringtoneAudio = new Audio(ringtonePath);
       this.ringtoneAudio.loop = true;
       this.ringtoneAudio.volume = 1;
       this.ringtoneAudio.play().catch(() => {
         // Fallback to default sound if custom not found
-        this.ringtoneAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQkhfKrt7Y9NETaN4u3fhz0ZUrG61pNdKSt/tNvDolEWN5nQ5qpyIxhbqdzNr3QiBUum4d2tdykNW7jn0plTGh1ytuDHnWIiLH+w4tOrYiAhf7bn1JpSGBlwteDElmoiLIOv3dKrYyUgebTh16ZkHyB6s+TVp2cjI3q039imZCMcdrjk0qNnIR97suDXpmMfIXy24NWmZSEhfLjg1aRlISF7tuDVpmUhIXy54NWmZSEhfLng1aVlISF8ueHVpWYiIXy64tSkZSIhfbri1KRmIiF9uuLUpWYiIX274tSkZiIhfbvi1KRmIiB9vOLUpGYiIH284tSkZiIgfbzi1KRmIiB9vOLUpGciIH284dSkZyIgfb3h1KRnIiB9veHUpGciIH294dSkZyMgfb3h1KRnIyB9vt/UpGcjIH2+39SkZyMgfb7f1KRnIyB9vt/UpGcjIH6+39SkZyMgfr7f1KRnIyB+vt/UpGcjIH6+39SkZyMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/U');
+        this.ringtoneAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleQkhfKrt7Y9NETaN4u3fhz0ZUrG61pNdKSt/tNvDolEWN5nQ5qpyIxhbqdzNr3QiBUum4d2tdykNW7jn0plTGh1ytuDHnWIiLH+w4tOrYiAhf7bn1JpSGBlwteDElmoiLIOv3dKrYyUgebTh16ZkHyB6s+TVp2cjI3q039imZCMcdrjk0qNnIR97suDXpmMfIXy24NWmZSEhfLjg1aRlISF7tuDVpmUhIXy54NWmZSEhfLng1aVlISF8ueHVpWYiIXy64tSkZSIhfbri1KRmIiF9uuLUpWYiIX274tSkZiIhfbvi1KRmIiB9vOLUpGYiIH284tSkZiIgfbzi1KRmIiB9vOLUpGciIH284dSkZyIgfb3h1KRnIiB9veHUpGciIH294dSkZyMgfb3h1KRnIyB9vt/UpGcjIH2+39SkZyMgfb7f1KRnIyB9vt/UpGcjIH6+39SkZyMgfr7f1KRnIyB+vt/UpGcjIH6+39SkZyMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/UpGgjIH6+39SkaCMgfr7f1KRoIyB+vt/U');
         this.ringtoneAudio?.play().catch(() => { });
       });
     } catch (error) {
@@ -607,7 +607,7 @@ class WebRTCService {
   // Play ringback tone (heard by caller)
   private playRingbackTone(): void {
     try {
-      this.ringtoneAudio = new Audio('/sounds/ringback.mp3');
+      this.ringtoneAudio = new Audio('/sound/notification.mp3');
       this.ringtoneAudio.loop = true;
       this.ringtoneAudio.volume = 0.5;
       this.ringtoneAudio.play().catch(() => { });

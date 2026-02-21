@@ -21,24 +21,26 @@ export function FriendsView({ onStartChat }: FriendsViewProps) {
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
   const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set());
 
+  const matchesQuery = (u: AppUser, qRaw: string) => {
+    const q = qRaw.trim().toLowerCase();
+    if (!q) return true;
+    const hay = `${u.id} ${u.display_name} ${u.username}`.toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return tokens.every(t => hay.includes(t));
+  };
+
   const filteredFriends = friends.filter(f => {
     // Hide friend if their chat is hidden and hidden chats are not revealed
     if (hiddenChats.includes(f.id) && !showHiddenChats) return false;
 
-    return f.id === searchQuery ||
-      f.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      f.username.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesQuery(f, searchQuery);
   });
 
   const discoverUsers = allUsers.filter(u =>
     u.id !== profile?.id &&
     !friends.some(f => f.id === u.id) &&
     !blockedUsers.includes(u.id) &&
-    (searchQuery ? (
-      u.id === searchQuery ||
-      u.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.username.toLowerCase().includes(searchQuery.toLowerCase())
-    ) : true)
+    matchesQuery(u, searchQuery)
   );
 
   const handleAcceptRequest = async (request: FriendRequest) => {
@@ -71,19 +73,18 @@ export function FriendsView({ onStartChat }: FriendsViewProps) {
       alert("You cannot send a friend request to yourself.");
       return;
     }
+
+    if (pendingRequests.has(user.id)) return;
+
     setPendingRequests(prev => new Set(prev).add(user.id));
     try {
-      const result = await FriendService.sendFriendRequest(user.id);
+      const result = await FriendService.sendFriendRequestByUsername(user.username);
       if (!result.success) {
         alert(result.error);
-        setPendingRequests(prev => {
-          const next = new Set(prev);
-          next.delete(user.id);
-          return next;
-        });
       }
     } catch (error) {
       console.error('Failed to send request:', error);
+    } finally {
       setPendingRequests(prev => {
         const next = new Set(prev);
         next.delete(user.id);

@@ -16,6 +16,7 @@ import { CallsView } from './components/Calls/CallsView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { LoadingScreen } from './components/UI/LoadingScreen';
 import { useProgress } from './hooks/useProgress';
+import { FriendService } from '@/services/FriendService';
 import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -320,16 +321,61 @@ export function App() {
         updateProgress(50, 'Loading user profile...');
         store.setUser(session.user);
 
-        const { data: profileData } = await supabase
+        const generateUsername = () => {
+          const emailPrefix = session.user.email?.split('@')[0] || 'user';
+          const suffix = session.user.id.slice(0, 6);
+          return `${emailPrefix}_${suffix}`.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+        };
+
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
-          .single();
+          .maybeSingle();
 
-        if (profileData) {
+        if (profileError) {
+          console.error('Profile fetch error:', profileError);
+        }
+
+        let ensuredProfile = profileData;
+        if (!ensuredProfile) {
+          const displayName =
+            (session.user.user_metadata as any)?.display_name ||
+            (session.user.user_metadata as any)?.full_name ||
+            session.user.email?.split('@')[0] ||
+            'User';
+
+          const profileInsert = {
+            id: session.user.id,
+            email: session.user.email || '',
+            display_name: displayName,
+            username: generateUsername(),
+            avatar_url: (session.user.user_metadata as any)?.avatar_url || null,
+            bio: null,
+            is_online: true,
+            last_seen: new Date().toISOString(),
+            is_admin: false,
+            is_suspended: false,
+            created_at: new Date().toISOString()
+          };
+
+          const { data: insertedProfile, error: insertProfileError } = await supabase
+            .from('profiles')
+            .insert(profileInsert)
+            .select('*')
+            .maybeSingle();
+
+          if (insertProfileError) {
+            console.error('Profile create error:', insertProfileError);
+          } else {
+            ensuredProfile = insertedProfile as any;
+          }
+        }
+
+        if (ensuredProfile) {
           updateProgress(60, 'Setting up profile...');
-          store.setProfile(profileData);
-          store.setIsAdmin(profileData.is_admin || false);
+          store.setProfile(ensuredProfile as any);
+          store.setIsAdmin((ensuredProfile as any).is_admin || false);
           store.setIsAuthenticated(true);
 
           updateProgress(70, 'Updating online status...');
@@ -340,7 +386,6 @@ export function App() {
 
           // Initialize Friend Service
           updateProgress(75, 'Initializing friend service...');
-          const { FriendService } = await import('./services/FriendService');
           FriendService.setCurrentUser(session.user.id);
 
           updateProgress(80, 'Starting sync service...');
@@ -401,9 +446,9 @@ export function App() {
             setActiveTab('calls');
           });
 
-          // Pass profileData directly to avoid race condition with store update
+          // Pass profile directly to avoid race condition with store update
           updateProgress(95, 'Loading user data...');
-          await loadDataForUser(profileData);
+          await loadDataForUser(ensuredProfile as any);
         }
       }
       
@@ -441,7 +486,8 @@ export function App() {
         setFriendRequests(requestsData.map(r => ({
           ...r,
           sender_id: r.sender_id,
-          receiver_id: r.receiver_id
+          receiver_id: r.receiver_id,
+          sender: (r as any).sender
         })));
       }
 
@@ -453,7 +499,14 @@ export function App() {
         const settings: Partial<typeof adminSettings> = {};
         settingsData.forEach(s => {
           const key = s.key as keyof typeof adminSettings;
-          const value = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+          let value: unknown = s.value;
+          if (typeof s.value === 'string') {
+            try {
+              value = JSON.parse(s.value);
+            } catch {
+              value = s.value;
+            }
+          }
           (settings as Record<string, unknown>)[key] = value;
         });
         store.setAdminSettings(settings);
@@ -490,15 +543,13 @@ export function App() {
         setCallLogs(callLogsData);
       }
 
-      if (currentProfile.is_admin) {
-        const { data: usersData } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
+      const { data: usersData } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-        if (usersData) {
-          setAllUsers(usersData);
-        }
+      if (usersData) {
+        setAllUsers(usersData);
       }
 
     } catch (error) {
@@ -1394,10 +1445,13 @@ export function App() {
 
           <div className="flex-1 overflow-y-auto">
             {allUsers
-              .filter(u =>
-                u.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                u.username.toLowerCase().includes(searchQuery.toLowerCase())
-              )
+              .filter(u => {
+                const q = searchQuery.trim().toLowerCase();
+                if (!q) return true;
+                const hay = `${u.id} ${u.display_name} ${u.username}`.toLowerCase();
+                const tokens = q.split(/\s+/).filter(Boolean);
+                return tokens.every(t => hay.includes(t));
+              })
               .filter(u => u.id !== profile?.id && !blockedUsers.includes(u.id))
               .map((user) => (
                 <div
@@ -1422,18 +1476,30 @@ export function App() {
                   {friends.some(f => f.id === user.id) ? (
                     <span className="text-xs text-green-500 font-medium bg-green-50 dark:bg-green-900/30 px-3 py-1 rounded-full">Friend</span>
                   ) : (
-                    <button className="p-3 bg-indigo-600 text-white rounded-full active:bg-indigo-700">
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const result = await FriendService.sendFriendRequestByUsername(user.username);
+                        if (!result.success) {
+                          alert(result.error || 'Failed to send friend request');
+                        } else {
+                          alert('Friend request sent');
+                        }
+                      }}
+                      className="p-3 bg-indigo-600 text-white rounded-full active:bg-indigo-700"
+                    >
                       <UserPlus className="w-5 h-5" />
                     </button>
                   )}
                 </div>
               ))}
 
-            {searchQuery && allUsers.filter(u =>
-              u.id === searchQuery ||
-              u.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              u.username.toLowerCase().includes(searchQuery.toLowerCase())
-            ).length === 0 && (
+            {searchQuery && allUsers.filter(u => {
+              const q = searchQuery.trim().toLowerCase();
+              const hay = `${u.id} ${u.display_name} ${u.username}`.toLowerCase();
+              const tokens = q.split(/\s+/).filter(Boolean);
+              return tokens.every(t => hay.includes(t));
+            }).length === 0 && (
                 <div className="p-8 text-center">
                   <Search className="w-12 h-12 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                   <p className="text-gray-500">No users found</p>

@@ -238,17 +238,17 @@ export async function processAndStoreMedia(
   // Create media file record
   const mediaFile: DBMediaFile = {
     id: fileId,
-    messageId,
-    storyId,
+    message_id: messageId,
+    story_id: storyId,
     type: isImage ? 'image' : isVideo ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'document',
-    mimeType: processedFile.type,
+    mime_type: processedFile.type,
     size: processedFile.size,
     name: file.name,
     thumbnail,
-    localPath: localPath || undefined,
-    isDownloaded: true,
-    downloadProgress: 100,
-    createdAt: Date.now()
+    local_path: localPath || undefined,
+    is_downloaded: true,
+    download_progress: 100,
+    created_at: Date.now()
   };
   
   // Store in IndexedDB

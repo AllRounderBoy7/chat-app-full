@@ -55,12 +55,45 @@ export function SettingsView() {
     setSaving(true);
     vibrate(10);
 
+    const normalizeUsername = (u: string) => u.trim().replace(/^@/, '').toLowerCase();
+    const nextUsername = normalizeUsername(editUsername);
+
     try {
+      if (!nextUsername) {
+        alert('Username is required');
+        return;
+      }
+
+      if (nextUsername.length < 3 || nextUsername.length > 20) {
+        alert('Username must be 3-20 characters');
+        return;
+      }
+
+      if (!/^[a-z0-9_]+$/.test(nextUsername)) {
+        alert('Username can only contain lowercase letters, numbers, and underscores');
+        return;
+      }
+
+      // Check username uniqueness (case-insensitive) excluding current user
+      const { data: existing, error: existingError } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('username', nextUsername)
+        .neq('id', profile.id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+
+      if (existing?.id) {
+        alert('Username already taken. Choose a different one.');
+        return;
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
           display_name: editName,
-          username: editUsername,
+          username: nextUsername,
           bio: editBio,
           updated_at: new Date().toISOString()
         })
@@ -70,7 +103,7 @@ export function SettingsView() {
 
       // Update local state
       useAppStore.setState({
-        profile: { ...profile, display_name: editName, username: editUsername, bio: editBio }
+        profile: { ...profile, display_name: editName, username: nextUsername, bio: editBio }
       });
 
       setIsEditing(false);

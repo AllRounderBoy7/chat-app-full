@@ -1,6 +1,7 @@
 // Sync Service - Handles transitional cloud storage like WhatsApp
 import { supabase } from './supabase';
 import { db, addToSyncQueue, getPendingSyncItems, removeSyncItem, updateSyncItem, type DBMessage, type DBSyncQueue } from './database';
+import { processAndStoreMedia } from './mediaStorage';
 
 const MESSAGE_TTL_DAYS = 30;
 const SYNC_INTERVAL = 5000;
@@ -415,6 +416,40 @@ export function subscribeToRealtime(oderId: string, callbacks: {
 
       await db.messages.put(localMsg);
       callbacks.onMessage?.(localMsg);
+
+      // Transport-only media: download media to local storage, then delete from Supabase Storage
+      if (localMsg.file_url && ['image', 'video', 'audio', 'document', 'voice', 'file'].includes(localMsg.type)) {
+        try {
+          const marker = '/storage/v1/object/public/chat-media/';
+          if (localMsg.file_url.includes(marker)) {
+            const path = localMsg.file_url.split(marker)[1];
+            const res = await fetch(localMsg.file_url);
+            const blob = await res.blob();
+
+            const ext = localMsg.type === 'image' ? 'jpg'
+              : localMsg.type === 'video' ? 'mp4'
+                : localMsg.type === 'voice' || localMsg.type === 'audio' ? 'webm'
+                  : 'bin';
+
+            const file = new File([blob], `ourdm_${localMsg.id}.${ext}`, { type: blob.type || 'application/octet-stream' });
+            const media = await processAndStoreMedia(file, localMsg.id);
+
+            if (media.local_path) {
+              await db.messages.update(localMsg.id, {
+                file_url: media.local_path,
+                local_file_id: media.id,
+                updated_at: Date.now()
+              });
+            }
+
+            if (path) {
+              await supabase.storage.from('chat-media').remove([path]);
+            }
+          }
+        } catch (e) {
+          console.warn('Transport media auto-cache/delete failed:', e);
+        }
+      }
 
       // Send delivery receipt and delete from server
       await sendDeliveryReceipt(msg.id as string, msg.sender_id as string);

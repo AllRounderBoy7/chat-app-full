@@ -528,11 +528,11 @@ class MessageServiceClass {
     // Upload audio
     const fileName = `voice_${Date.now()}.webm`;
     const { data: uploadData } = await supabase.storage
-      .from('media')
+      .from('chat-media')
       .upload(`voice/${sender_id}/${fileName}`, audioBlob);
 
     const fileUrl = uploadData?.path
-      ? supabase.storage.from('media').getPublicUrl(uploadData.path).data.publicUrl
+      ? supabase.storage.from('chat-media').getPublicUrl(uploadData.path).data.publicUrl
       : '';
 
     return this.sendMessage(chat_id, sender_id, receiver_id, '🎤 Voice message', 'voice', {
@@ -614,9 +614,9 @@ class MessageServiceClass {
           if (item.file_url) {
             // Extract path from URL
             const url = new URL(item.file_url);
-            const path = url.pathname.split('/storage/v1/object/public/media/')[1];
+            const path = url.pathname.split('/storage/v1/object/public/chat-media/')[1];
             if (path) {
-              await supabase.storage.from('media').remove([path]);
+              await supabase.storage.from('chat-media').remove([path]);
               // Clear URL from DB to save space and mark as "Server Cleared"
               await supabase.from('pending_messages').update({ file_url: null }).eq('id', item.id);
             }

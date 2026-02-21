@@ -43,17 +43,9 @@ export async function signUp(email: string, password: string, displayName: strin
   });
   
   if (error) throw error;
-  
-  // Create profile
-  if (data.user) {
-    await supabase.from('profiles').insert({
-      id: data.user.id,
-      email: data.user.email,
-      display_name: displayName,
-      username: displayName.toLowerCase().replace(/\s+/g, '_'),
-      created_at: new Date().toISOString(),
-    });
-  }
+  // Do not insert into `profiles` here.
+  // On many Supabase setups (email confirmation / no session yet + RLS), this insert can fail and surface as a "Database error".
+  // Profile creation is handled after login in App.tsx (ensure-profile logic).
   
   return data;
 }
@@ -106,9 +98,10 @@ export async function getProfile(userId: string) {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
   
   if (error) throw error;
+  if (!data) throw new Error(`Profile not found for user ${userId}`);
   return data;
 }
 

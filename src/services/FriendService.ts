@@ -79,6 +79,38 @@ class FriendServiceClass {
 
   // ==================== FRIEND REQUESTS ====================
 
+  async sendFriendRequestByUsername(
+    username: string,
+    message?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.currentUserId) return { success: false, error: 'Not logged in' };
+
+    const normalized = username.trim().replace(/^@/, '').toLowerCase();
+    if (!normalized) return { success: false, error: 'Username is required' };
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, username')
+        .ilike('username', normalized)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Send friend request by username: profile lookup error:', error);
+        return { success: false, error: 'Failed to find user' };
+      }
+
+      if (!data?.id) {
+        return { success: false, error: 'No user found with this username' };
+      }
+
+      return await this.sendFriendRequest(data.id, message);
+    } catch (e) {
+      console.error('Send friend request by username error:', e);
+      return { success: false, error: 'Failed to send request' };
+    }
+  }
+
   async sendFriendRequest(
     toUserId: string,
     message?: string

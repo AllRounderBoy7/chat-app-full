@@ -191,6 +191,54 @@ export interface DBPendingUpload {
   created_at: number;
 }
 
+export interface DBGroup {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  settings: string;
+  members: string;
+  memberCount: number;
+  lastMessage?: string;
+  unreadCount: number;
+  isPinned: boolean;
+  isMuted: boolean;
+  isArchived: boolean;
+}
+
+export interface DBGroupMessage {
+  id: string;
+  groupId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  content: string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'voice' | 'poll' | 'location' | 'contact' | 'system';
+  replyTo?: string;
+  mentions: string[];
+  reactions: Record<string, string[]>;
+  attachments?: string;
+  poll?: string;
+  location?: string;
+  contact?: string;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+  deliveredTo: string[];
+  readBy: string[];
+  isEdited: boolean;
+  editedAt?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  deletedFor: 'everyone' | 'me' | null;
+  isStarred: boolean;
+  isPinned: boolean;
+  scheduledFor?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
 export interface DBSyncQueue {
   id: string;
   type: 'message' | 'status_update' | 'reaction' | 'delete' | 'typing' | 'read_receipt';
@@ -217,6 +265,8 @@ class OurdmDatabase extends Dexie {
   callLogs!: Table<DBCallLog, string>;
   mediaFiles!: Table<DBMediaFile, string>;
   pendingUploads!: Table<DBPendingUpload, string>;
+  groups!: Table<DBGroup, string>;
+  groupMessages!: Table<DBGroupMessage, string>;
   syncQueue!: Table<DBSyncQueue, string>;
   settings!: Table<DBSettings, string>;
   friends!: Table<DBFriend, string>;
@@ -227,7 +277,7 @@ class OurdmDatabase extends Dexie {
     super('OurdmDB');
 
     // Naming standardized to snake_case for consistency
-    this.version(4).stores({
+    this.version(5).stores({
       messages: 'id, chat_id, sender_id, receiver_id, status, synced_to_server, created_at, [chat_id+created_at], [chat_id+status]',
       chats: 'id, order_id, last_message_time, is_pinned, is_hidden, is_archived, updated_at',
       contacts: 'id, username, is_friend, friend_status, is_blocked, odm',
@@ -235,6 +285,8 @@ class OurdmDatabase extends Dexie {
       callLogs: 'id, order_id, created_at',
       mediaFiles: 'id, message_id, story_id, is_downloaded, type',
       pendingUploads: 'id, status, created_at',
+      groups: 'id, updatedAt, isPinned, isArchived',
+      groupMessages: 'id, groupId, senderId, createdAt, status, [groupId+createdAt]',
       syncQueue: 'id, priority, created_at, type',
       settings: 'id, key',
       friends: 'id, odm_odm_userId, friendId, is_best_friend, is_close_friend, friendship_date',
